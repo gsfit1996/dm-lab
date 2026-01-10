@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useDMLab } from '../context/DMLabContext';
-import { Plus, Search, MoreVertical, Trash2, UserPlus, Linkedin, ExternalLink } from 'lucide-react';
+import { Search, MoreVertical, Trash2, UserPlus, Linkedin } from 'lucide-react';
 import type { Lead, LeadStage } from '../types';
 import clsx from 'clsx';
 import { v4 as uuidv4 } from 'uuid';

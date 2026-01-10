@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useDMLab } from '../context/DMLabContext';
-import { CONSTANTS } from '../types';
+
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     LineChart, Line
 } from 'recharts';
-import { format, startOfWeek, parseISO, subDays, startOfMonth } from 'date-fns';
+import { format, startOfWeek, parseISO, subDays } from 'date-fns';
 import { motion } from 'framer-motion';
-import { Download, Target, Calendar, TrendingUp } from 'lucide-react';
+import { Download, Target } from 'lucide-react';
+
 import clsx from 'clsx';
 
 export default function Dashboard() {
@@ -379,7 +380,7 @@ export default function Dashboard() {
 
 // Components
 
-function RateCard({ title, value, threshold, subtitle, kpiKey, onTargetChange }: any) {
+function RateCard({ title, value, threshold, subtitle, onTargetChange }: any) {
     const [editing, setEditing] = useState(false);
     const [tempTarget, setTempTarget] = useState((threshold * 100).toFixed(1));
     const safeValue = isNaN(value) ? 0 : value;

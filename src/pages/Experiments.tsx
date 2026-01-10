@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useDMLab } from '../context/DMLabContext';
-import type { Experiment, Variant } from '../types';
+import type { Experiment } from '../types';
 import { Play, Pause, Archive as ArchiveIcon, Trash2, Copy, Plus, Edit2, X } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import clsx from 'clsx';

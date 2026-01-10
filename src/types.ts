@@ -24,12 +24,17 @@ export interface Lead {
     id: string;
     name: string;
     profileLink: string;
+    linkedinUrl?: string; // Added for CRM
     dateInitiated: string;
+    lastInteraction?: string; // Added for CRM
     stage: LeadStage;
     experimentId?: string;
     variantId?: string;
     notes: string;
+    createdAt?: string;
 }
+
+
 
 export interface DailyLog {
     id: string;

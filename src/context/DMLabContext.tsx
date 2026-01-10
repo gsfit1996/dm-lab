@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import type { AppState, Experiment, DailyLog, Offer } from '../types';
+import type { AppState, Experiment, DailyLog, Offer, Lead, KpiTargets } from '../types';
 import { CONSTANTS } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
