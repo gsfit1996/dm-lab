@@ -1,0 +1,254 @@
+import { useState } from 'react';
+import { useDMLab } from '../context/DMLabContext';
+import type { Experiment, Variant } from '../types';
+import { Play, Pause, Archive as ArchiveIcon, Trash2, Copy, Plus, Edit2, X } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
+import clsx from 'clsx';
+
+export default function Experiments() {
+    const { state, actions } = useDMLab();
+    const { experiments, dailyLogs } = state;
+    const [showForm, setShowForm] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
+
+    const initialForm: Omit<Experiment, 'id' | 'createdAt'> = {
+        name: '',
+        hypothesis: '',
+        status: 'planned',
+        channel: 'linkedin',
+        variants: [
+            { id: uuidv4(), label: 'A', message: '' },
+            { id: uuidv4(), label: 'B', message: '' }
+        ],
+        startedAt: ''
+    };
+
+    const [form, setForm] = useState(initialForm);
+
+    const addVariant = () => {
+        const labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+        const nextLabel = labels[form.variants.length % labels.length];
+        setForm({
+            ...form,
+            variants: [...form.variants, { id: uuidv4(), label: nextLabel, message: '' }]
+        });
+    };
+
+    const removeVariant = (id: string) => {
+        if (form.variants.length <= 1) return;
+        setForm({
+            ...form,
+            variants: form.variants.filter(v => v.id !== id)
+        });
+    };
+
+    const updateVariant = (id: string, message: string) => {
+        setForm({
+            ...form,
+            variants: form.variants.map(v => v.id === id ? { ...v, message } : v)
+        });
+    };
+
+    // Helper to get metrics for an experiment
+    const getMetrics = (expId: string) => {
+        const logs = dailyLogs.filter(l => l.experimentId === expId);
+        const exp = experiments.find(e => e.id === expId);
+        if (!exp) return { variants: [], totalLogs: 0 };
+
+        const variantStats = exp.variants.map(v => {
+            const vLogs = logs.filter(l => l.variantId === v.id);
+            const positive = vLogs.reduce((s, l) => s + l.positiveReplies, 0);
+            const seen = vLogs.reduce((s, l) => s + (l.seen || 0), 0);
+            const rate = seen === 0 ? 0 : positive / seen;
+            const isValid = seen >= 60;
+            return { ...v, seen, positive, rate, isValid };
+        });
+
+        return { variants: variantStats, totalLogs: logs.length };
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (editingId) {
+            actions.updateExperiment(editingId, form);
+            setEditingId(null);
+        } else {
+            const finalForm = {
+                ...form,
+                startedAt: form.status === 'running' && !form.startedAt ? new Date().toISOString().split('T')[0] : form.startedAt
+            };
+            actions.addExperiment(finalForm);
+        }
+        setForm(initialForm);
+        setShowForm(false);
+    };
+
+    const startEdit = (exp: Experiment) => {
+        setEditingId(exp.id);
+        const { id, createdAt, ...rest } = exp;
+        setForm(rest);
+        setShowForm(true);
+    };
+
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+    };
+
+    const toggleStatus = (exp: Experiment) => {
+        const newStatus = exp.status === 'running' ? 'paused' : 'running';
+        const updates: Partial<Experiment> = { status: newStatus };
+        if (newStatus === 'running' && !exp.startedAt) {
+            updates.startedAt = new Date().toISOString().split('T')[0];
+        }
+        actions.updateExperiment(exp.id, updates);
+    };
+
+    const activeExperiments = experiments.filter(e => e.status !== 'archived').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    return (
+        <div className="flex flex-col gap-6">
+
+            {!showForm && (
+                <button onClick={() => setShowForm(true)} className="btn w-fit">
+                    <Plus size={18} /> New Multivariate Experiment
+                </button>
+            )}
+
+            {showForm && (
+                <div className="card border-[var(--accent)]">
+                    <h3>{editingId ? 'Edit Experiment' : 'New Experiment'}</h3>
+                    <form onSubmit={handleSubmit} className="flex flex-col gap-4 mt-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <label className="flex flex-col gap-1">
+                                <span className="text-sm">Name</span>
+                                <input className="input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required placeholder="e.g. Permission Opener Test" />
+                            </label>
+                            <label className="flex flex-col gap-1">
+                                <span className="text-sm">Channel</span>
+                                <select className="input" value={form.channel} onChange={e => setForm({ ...form, channel: e.target.value as any })}>
+                                    <option value="linkedin">LinkedIn</option>
+                                    <option value="personalized">Personalized</option>
+                                    <option value="offer">Offer</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <label className="flex flex-col gap-1">
+                            <span className="text-sm">Hypothesis</span>
+                            <input className="input" value={form.hypothesis} onChange={e => setForm({ ...form, hypothesis: e.target.value })} placeholder="Shorter opener increases reply rate" />
+                        </label>
+
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between border-b border-border pb-2">
+                                <span className="text-sm font-semibold">Message Variants</span>
+                                <button type="button" onClick={addVariant} className="flex items-center gap-1 text-xs text-primary hover:underline">
+                                    <Plus size={14} /> Add Variant
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {form.variants.map((v) => (
+                                    <div key={v.id} className="p-4 bg-secondary/20 border border-border rounded-xl relative">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="font-bold text-xs uppercase tracking-wider text-primary">Variant {v.label}</span>
+                                            {form.variants.length > 1 && (
+                                                <button type="button" onClick={() => removeVariant(v.id)} className="text-muted-foreground hover:text-red-500">
+                                                    <X size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+                                        <textarea
+                                            className="input h-24 text-sm"
+                                            value={v.message}
+                                            onChange={e => updateVariant(v.id, e.target.value)}
+                                            placeholder={`Paste variant ${v.label} message here...`}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex gap-4 border-t pt-4 mt-2 border-[var(--border)]">
+                            <label className="flex flex-col gap-1 w-1/4">
+                                <span className="text-sm">Initial Status</span>
+                                <select className="input" value={form.status} onChange={e => setForm({ ...form, status: e.target.value as any })}>
+                                    <option value="planned">Planned</option>
+                                    <option value="running">Running</option>
+                                    <option value="completed">Completed</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <div className="flex justify-end gap-2">
+                            <button type="button" className="btn btn-ghost" onClick={() => { setShowForm(false); setForm(initialForm); setEditingId(null); }}>Cancel</button>
+                            <button type="submit" className="btn">Save Experiment</button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-4">
+                {activeExperiments.map(exp => {
+                    const { variants: vStats, totalLogs } = getMetrics(exp.id);
+                    const winner = vStats.reduce((prev, current) => (prev.rate > current.rate) ? prev : current, vStats[0]);
+
+                    return (
+                        <div key={exp.id} className="card relative group">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 className="mb-1 text-lg">{exp.name}</h3>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className={`badge ${exp.status}`}>{exp.status}</span>
+                                        <span className="text-xs text-muted-foreground">Started: {exp.startedAt || 'Not started'}</span>
+                                    </div>
+                                    <p className="text-sm text-[var(--text-secondary)]">{exp.hypothesis}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => toggleStatus(exp)} className="btn btn-outline text-xs px-2 py-1 h-8">
+                                        {exp.status === 'running' ? <Pause size={14} /> : <Play size={14} />}
+                                        {exp.status === 'running' ? 'Pause' : 'Run'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+                                {vStats.map((v) => (
+                                    <div key={v.id} className={clsx(
+                                        "p-3 rounded-xl border border-[var(--border)] relative",
+                                        v.id === winner?.id && v.rate > 0 && "bg-primary/5 border-primary/30 outline outline-1 outline-primary/20"
+                                    )}>
+                                        <div className="flex justify-between mb-2">
+                                            <span className="font-bold text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                                Variant {v.label}
+                                                {v.id === winner?.id && v.rate > 0 && <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">Leader</span>}
+                                            </span>
+                                            <button onClick={() => copyToClipboard(v.message)} className="text-[var(--text-secondary)] hover:text-[var(--accent)]"><Copy size={14} /></button>
+                                        </div>
+                                        <div className="text-xl font-bold">{v.positive} <span className="text-xs text-[var(--text-secondary)] font-normal">/ {v.seen} seen</span></div>
+                                        <div className="flex items-center justify-between mt-1">
+                                            <div className="text-xs font-mono text-primary">{(v.rate * 100).toFixed(1)}% PRR</div>
+                                            <div className={clsx("text-[10px] font-bold uppercase", v.isValid ? "text-emerald-500" : "text-amber-500")}>
+                                                {v.isValid ? '✓ Valid' : `${60 - v.seen} to valid`}
+                                            </div>
+                                        </div>
+                                        <div className="h-1 bg-secondary rounded-full mt-2 overflow-hidden">
+                                            <div className={clsx("h-full", v.isValid ? "bg-emerald-500" : "bg-amber-500")} style={{ width: `${Math.min((v.seen / 60) * 100, 100)}%` }} />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="flex justify-between items-center text-sm text-[var(--text-secondary)] border-t border-[var(--border)] pt-3">
+                                <span>{totalLogs} daily logs attached</span>
+                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => startEdit(exp)} className="p-1 hover:text-[var(--accent)]"><Edit2 size={16} /></button>
+                                    <button onClick={() => actions.updateExperiment(exp.id, { status: 'archived' })} className="p-1 hover:text-orange-500" title="Archive"><ArchiveIcon size={16} /></button>
+                                    <button onClick={() => { if (confirm('Delete ' + exp.name + '?')) actions.deleteExperiment(exp.id) }} className="p-1 hover:text-red-500" title="Delete"><Trash2 size={16} /></button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}

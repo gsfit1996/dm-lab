@@ -1,0 +1,38 @@
+{
+  "name": "dm-lab",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "node server/index.cjs",
+    "dev:full": "concurrently \"npm run dev:server\" \"npm run dev\"",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.8",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.4"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.90.1",
+    "@types/uuid": "^10.0.0",
+    "body-parser": "^2.2.2",
+    "clsx": "^2.1.1",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "express": "^5.2.1",
+    "framer-motion": "^12.25.0",
+    "lucide-react": "^0.562.0",
+    "react-router-dom": "^7.12.0",
+    "recharts": "^3.6.0",
+    "tailwind-merge": "^3.4.0",
+    "uuid": "^13.0.0"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "experiments": [],
+  "dailyLogs": [
+    {
+      "date": "2026-01-10",
+      "experimentId": "",
+      "variant": "none",
+      "campaign": "",
+      "channel": "linkedin",
+      "sent": 0,
+      "accepted": 0,
+      "replied": 0,
+      "positiveReplies": 0,
+      "callsSet": 0,
+      "booked": 0,
+      "mediaSeen": 0,
+      "notes": "",
+      "id": "bad4771f-5634-4751-9158-0ed2d1efbe2e"
+    },
+    {
+      "date": "2026-01-10",
+      "experimentId": "",
+      "variant": "none",
+      "campaign": "",
+      "channel": "linkedin",
+      "sent": 0,
+      "accepted": 0,
+      "replied": 0,
+      "positiveReplies": 0,
+      "callsSet": 0,
+      "booked": 0,
+      "mediaSeen": 0,
+      "notes": "",
+      "id": "36f7b96a-5962-47ea-90d5-e13faabd4299"
+    },
+    {
+      "date": "2026-01-10",
+      "experimentId": "",
+      "variant": "none",
+      "campaign": "",
+      "channel": "linkedin",
+      "sent": 100,
+      "accepted": 60,
+      "replied": 0,
+      "positiveReplies": 0,
+      "callsSet": 0,
+      "booked": 0,
+      "mediaSeen": 0,
+      "notes": "",
+      "id": "0788bab4-dca2-4442-9ecb-6296ec6f7045"
+    }
+  ],
+  "offers": [],
+  "settings": {
+    "theme": "dark"
+  }
+}
