@@ -268,18 +268,11 @@ export default function Dashboard() {
                     <RateCard title="Connection Rate (CR)" value={kpis.cr} target={kpiTargets.cr} status={kpis.crStatus} subtitle={`${aggregates.connectionsAccepted} / ${aggregates.connectionRequestsSent}`} onTargetChange={(v) => actions.updateKpiTargets({ cr: v })} />
                     <RateCard title="Positive Reply (PRR)" value={kpis.prr} target={kpiTargets.prr} status={kpis.prrStatus} subtitle={`${aggregates.permissionPositives} / ${aggregates.permissionMessagesSent}`} onTargetChange={(v) => actions.updateKpiTargets({ prr: v })} />
                     <RateCard title="Appt Booking (ABR)" value={kpis.abr} target={kpiTargets.abr} status={kpis.abrStatus} subtitle={`${aggregates.offerPositives} / ${aggregates.permissionMessagesSent}`} onTargetChange={(v) => actions.updateKpiTargets({ abr: v })} />
-                    <RateCard title="Booked KPI" value={kpis.bookedRate} target={kpiTargets.booked} status={kpis.bookedStatus} subtitle={`${aggregates.bookedCalls} / ${aggregates.permissionMessagesSent}`} onTargetChange={(v) => actions.updateKpiTargets({ booked: v })} />
+                    <RateCard title="Booked Calls (BC)" value={kpis.bookedRate} target={kpiTargets.booked} status={kpis.bookedStatus} subtitle={`${aggregates.bookedCalls} / ${aggregates.permissionMessagesSent}`} onTargetChange={(v) => actions.updateKpiTargets({ booked: v })} />
                 </div>
             </div>
 
-            {/* Diagnostic Tiles */}
-            <div>
-                <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Diagnostic Ratios</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <RateCard title="Pos -> ABR Ratio" value={kpis.posToAbr} target={kpiTargets.posToAbr} status="neutral" subtitle={`${aggregates.offerPositives} / ${aggregates.permissionPositives}`} onTargetChange={(v) => actions.updateKpiTargets({ posToAbr: v })} />
-                    <RateCard title="ABR -> Booked" value={kpis.abrToBooked} target={kpiTargets.abrToBooked} status="neutral" subtitle={`${aggregates.bookedCalls} / ${aggregates.offerPositives}`} onTargetChange={(v) => actions.updateKpiTargets({ abrToBooked: v })} />
-                </div>
-            </div>
+
 
             {/* Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[400px]">

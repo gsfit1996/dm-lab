@@ -203,12 +203,9 @@ export default function DailyLogPage() {
                         <KpiReadout label="CR" value={currentKpis.cr} status={currentKpis.crStatus} />
                         <KpiReadout label="PRR" value={currentKpis.prr} status={currentKpis.prrStatus} />
                         <KpiReadout label="ABR" value={currentKpis.abr} status={currentKpis.abrStatus} />
-                        <KpiReadout label="Booked" value={currentKpis.bookedRate} status={currentKpis.bookedStatus} />
+                        <KpiReadout label="BC" value={currentKpis.bookedRate} status={currentKpis.bookedStatus} />
 
                         <div className="w-px h-4 bg-border hidden sm:block"></div>
-
-                        <KpiReadout label="Pos>ABR" value={currentKpis.posToAbr} status="neutral" />
-                        <KpiReadout label="ABR>Book" value={currentKpis.abrToBooked} status="neutral" />
 
                         {form.isOldLane && (
                             <span className="text-xs font-bold text-amber-500 uppercase tracking-widest ml-auto">
