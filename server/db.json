@@ -1,0 +1,43 @@
+{
+  "experiments": [],
+  "dailyLogs": [
+    {
+      "date": "2026-01-10",
+      "experimentId": "",
+      "variantId": "",
+      "campaign": "",
+      "channel": "linkedin",
+      "sent": 50,
+      "seen": 30,
+      "accepted": 15,
+      "replied": 0,
+      "positiveReplies": 0,
+      "calendlySent": 0,
+      "booked": 0,
+      "attended": 0,
+      "closed": 0,
+      "notes": "",
+      "id": "912b7933-3f4c-4938-b791-46a7b99bdf7f"
+    }
+  ],
+  "leads": [],
+  "offers": [],
+  "goals": {
+    "weeklySent": 100,
+    "weeklyBooked": 5
+  },
+  "kpiTargets": {
+    "msr": 0.6,
+    "prr": 0.06,
+    "csr": 0.03,
+    "abr": 0.02,
+    "srr": 0.8,
+    "cr": 0.5,
+    "msbr": 0.1,
+    "bcr": 0.5,
+    "cdr": 0.66
+  },
+  "settings": {
+    "theme": "dark"
+  }
+}
