@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useDMLab } from '../context/DMLabContext';
-import type { Experiment } from '../types';
-import { Play, Pause, Archive as ArchiveIcon, Trash2, Copy, Plus, Edit2, X } from 'lucide-react';
+import { Experiment, ExperimentStage, PrimaryMetric, CONSTANTS } from '../types';
+import { Play, Pause, Archive as ArchiveIcon, Trash2, Copy, Plus, Edit2, X, AlertTriangle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import clsx from 'clsx';
 
@@ -16,6 +16,8 @@ export default function Experiments() {
         hypothesis: '',
         status: 'planned',
         channel: 'linkedin',
+        stage: 'PERMISSION', // Default
+        primaryMetric: 'PRR', // Default based on permission
         variants: [
             { id: uuidv4(), label: 'A', message: '' },
             { id: uuidv4(), label: 'B', message: '' }
@@ -49,19 +51,57 @@ export default function Experiments() {
         });
     };
 
+    // Auto-update primary metric when stage changes
+    const handleStageChange = (stage: ExperimentStage) => {
+        let metric: PrimaryMetric = 'PRR';
+        switch (stage) {
+            case 'CONNECTION': metric = 'CR'; break;
+            case 'PERMISSION': metric = 'PRR'; break;
+            case 'OFFER': metric = 'ABR'; break;
+            case 'BOOKING': metric = 'BOOKED_KPI'; break;
+        }
+        setForm({ ...form, stage, primaryMetric: metric });
+    };
+
     // Helper to get metrics for an experiment
     const getMetrics = (expId: string) => {
         const logs = dailyLogs.filter(l => l.experimentId === expId);
         const exp = experiments.find(e => e.id === expId);
         if (!exp) return { variants: [], totalLogs: 0 };
 
+        const threshold = exp.stage === 'OFFER' ? CONSTANTS.VALIDITY_THRESHOLDS.OFFER_SEEN : CONSTANTS.VALIDITY_THRESHOLDS.PERMISSION_SEEN;
+
         const variantStats = exp.variants.map(v => {
             const vLogs = logs.filter(l => l.variantId === v.id);
-            const positive = vLogs.reduce((s, l) => s + l.positiveReplies, 0);
-            const seen = vLogs.reduce((s, l) => s + (l.seen || 0), 0);
-            const rate = seen === 0 ? 0 : positive / seen;
-            const isValid = seen >= 60;
-            return { ...v, seen, positive, rate, isValid };
+
+            // Calculate base metrics (simplified aggregate for this view)
+            const sent = vLogs.reduce((s, l) => s + (l.permissionMessagesSent || 0), 0); // Denom for PRR/ABR
+            const seen = vLogs.reduce((s, l) => s + (l.permissionSeen || l.offerSeen || 0), 0); // Validity denom
+            const positives = vLogs.reduce((s, l) => s + l.permissionPositives, 0);
+            const offers = vLogs.reduce((s, l) => s + l.offerPositives, 0);
+            const booked = vLogs.reduce((s, l) => s + l.bookedCalls, 0);
+
+            // Determine rate based on Primary Metric
+            let rate = 0;
+            const denom = exp.primaryMetric === 'CR' ? vLogs.reduce((s, l) => s + l.connectionRequestsSent, 0)
+                : (exp.primaryMetric === 'PRR' || exp.primaryMetric === 'ABR' || exp.primaryMetric === 'BOOKED_KPI') ? sent
+                    : 1;
+
+            if (denom > 0) {
+                if (exp.primaryMetric === 'CR') rate = vLogs.reduce((s, l) => s + l.connectionsAccepted, 0) / denom;
+                else if (exp.primaryMetric === 'PRR') rate = positives / denom;
+                else if (exp.primaryMetric === 'ABR') rate = offers / denom;
+                else if (exp.primaryMetric === 'BOOKED_KPI') rate = booked / denom;
+
+                // Fallback logic if denominator is 0 but we want to show something? No, secure check.
+            }
+
+            // Validity Check
+            // "Permission tests require >= 60 SEEN", "Offer tests require >= 30 SEEN"
+            // We use 'seen' field which aggregates permissionSeen or offerSeen.
+            const isValid = seen >= threshold;
+
+            return { ...v, sent, seen, rate, isValid, positives, offers, booked };
         });
 
         return { variants: variantStats, totalLogs: logs.length };
@@ -118,19 +158,40 @@ export default function Experiments() {
                 <div className="card border-[var(--accent)]">
                     <h3>{editingId ? 'Edit Experiment' : 'New Experiment'}</h3>
                     <form onSubmit={handleSubmit} className="flex flex-col gap-4 mt-4">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <label className="flex flex-col gap-1">
                                 <span className="text-sm">Name</span>
                                 <input className="input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required placeholder="e.g. Permission Opener Test" />
                             </label>
-                            <label className="flex flex-col gap-1">
-                                <span className="text-sm">Channel</span>
-                                <select className="input" value={form.channel} onChange={e => setForm({ ...form, channel: e.target.value as any })}>
-                                    <option value="linkedin">LinkedIn</option>
-                                    <option value="personalized">Personalized</option>
-                                    <option value="offer">Offer</option>
-                                </select>
-                            </label>
+
+                            <div className="grid grid-cols-2 gap-2">
+                                <label className="flex flex-col gap-1">
+                                    <span className="text-sm">Stage Targeted</span>
+                                    <select
+                                        className="input"
+                                        value={form.stage}
+                                        onChange={e => handleStageChange(e.target.value as ExperimentStage)}
+                                    >
+                                        <option value="CONNECTION">Connection</option>
+                                        <option value="PERMISSION">Permission</option>
+                                        <option value="OFFER">Offer</option>
+                                        <option value="BOOKING">Booking</option>
+                                    </select>
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                    <span className="text-sm">Primary Metric</span>
+                                    <select
+                                        className="input"
+                                        value={form.primaryMetric}
+                                        onChange={e => setForm({ ...form, primaryMetric: e.target.value as PrimaryMetric })}
+                                    >
+                                        <option value="CR">CR</option>
+                                        <option value="PRR">PRR</option>
+                                        <option value="ABR">ABR</option>
+                                        <option value="BOOKED_KPI">Booked KPI</option>
+                                    </select>
+                                </label>
+                            </div>
                         </div>
 
                         <label className="flex flex-col gap-1">
@@ -157,10 +218,10 @@ export default function Experiments() {
                                             )}
                                         </div>
                                         <textarea
-                                            className="input h-24 text-sm"
+                                            className="input h-24 text-sm font-mono"
                                             value={v.message}
                                             onChange={e => updateVariant(v.id, e.target.value)}
-                                            placeholder={`Paste variant ${v.label} message here...`}
+                                            placeholder={`Paste variant ${v.label} copy here...`}
                                         />
                                     </div>
                                 ))}
@@ -189,15 +250,22 @@ export default function Experiments() {
             <div className="grid grid-cols-1 gap-4">
                 {activeExperiments.map(exp => {
                     const { variants: vStats, totalLogs } = getMetrics(exp.id);
-                    const winner = vStats.reduce((prev, current) => (prev.rate > current.rate) ? prev : current, vStats[0]);
+                    // Only declare winner if valid
+                    const validVariants = vStats.filter(v => v.isValid);
+                    const winner = validVariants.length > 0
+                        ? validVariants.reduce((prev, current) => (prev.rate > current.rate) ? prev : current, validVariants[0])
+                        : null;
 
                     return (
                         <div key={exp.id} className="card relative group">
                             <div className="flex justify-between items-start mb-4">
                                 <div>
-                                    <h3 className="mb-1 text-lg">{exp.name}</h3>
+                                    <div className="flex items-center gap-3 mb-1">
+                                        <h3 className="text-lg">{exp.name}</h3>
+                                        <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-secondary text-muted-foreground uppercase">{exp.stage} Stage</span>
+                                    </div>
                                     <div className="flex items-center gap-2 mb-2">
-                                        <span className={`badge ${exp.status}`}>{exp.status}</span>
+                                        <StatusBadge status={exp.status} />
                                         <span className="text-xs text-muted-foreground">Started: {exp.startedAt || 'Not started'}</span>
                                     </div>
                                     <p className="text-sm text-[var(--text-secondary)]">{exp.hypothesis}</p>
@@ -214,24 +282,28 @@ export default function Experiments() {
                                 {vStats.map((v) => (
                                     <div key={v.id} className={clsx(
                                         "p-3 rounded-xl border border-[var(--border)] relative",
-                                        v.id === winner?.id && v.rate > 0 && "bg-primary/5 border-primary/30 outline outline-1 outline-primary/20"
+                                        winner?.id === v.id && "bg-emerald-500/5 border-emerald-500/30 outline outline-1 outline-emerald-500/20"
                                     )}>
                                         <div className="flex justify-between mb-2">
                                             <span className="font-bold text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                                 Variant {v.label}
-                                                {v.id === winner?.id && v.rate > 0 && <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">Leader</span>}
+                                                {winner?.id === v.id && <span className="text-[10px] bg-emerald-500/20 text-emerald-500 px-1.5 py-0.5 rounded">Leader</span>}
                                             </span>
                                             <button onClick={() => copyToClipboard(v.message)} className="text-[var(--text-secondary)] hover:text-[var(--accent)]"><Copy size={14} /></button>
                                         </div>
-                                        <div className="text-xl font-bold">{v.positive} <span className="text-xs text-[var(--text-secondary)] font-normal">/ {v.seen} seen</span></div>
-                                        <div className="flex items-center justify-between mt-1">
-                                            <div className="text-xs font-mono text-primary">{(v.rate * 100).toFixed(1)}% PRR</div>
-                                            <div className={clsx("text-[10px] font-bold uppercase", v.isValid ? "text-emerald-500" : "text-amber-500")}>
-                                                {v.isValid ? '✓ Valid' : `${60 - v.seen} to valid`}
-                                            </div>
+
+                                        <div className="flex items-baseline gap-1 mb-1">
+                                            <span className="text-2xl font-bold">{(v.rate * 100).toFixed(1)}%</span>
+                                            <span className="text-xs font-bold text-muted-foreground">{exp.primaryMetric}</span>
                                         </div>
-                                        <div className="h-1 bg-secondary rounded-full mt-2 overflow-hidden">
-                                            <div className={clsx("h-full", v.isValid ? "bg-emerald-500" : "bg-amber-500")} style={{ width: `${Math.min((v.seen / 60) * 100, 100)}%` }} />
+
+                                        <div className="text-xs text-muted-foreground mb-3 flex gap-3">
+                                            <span>{v.positives} Positives</span>
+                                            <span>{v.seen} Seen</span>
+                                        </div>
+
+                                        <div className={clsx("flex items-center gap-1.5 text-[10px] font-bold uppercase p-1.5 rounded", v.isValid ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500")}>
+                                            {v.isValid ? <span className="flex items-center gap-1">✓ Valid Sample</span> : <span className="flex items-center gap-1"><AlertTriangle size={10} /> Insufficient Data ({Math.max(0, (exp.stage === 'OFFER' ? 30 : 60) - v.seen)} left)</span>}
                                         </div>
                                     </div>
                                 ))}
@@ -250,5 +322,20 @@ export default function Experiments() {
                 })}
             </div>
         </div>
+    );
+}
+
+function StatusBadge({ status }: { status: string }) {
+    const styles = {
+        planned: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+        running: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+        paused: "bg-slate-500/10 text-slate-500 border-slate-500/20",
+        completed: "bg-indigo-500/10 text-indigo-500 border-indigo-500/20",
+        archived: "bg-gray-500/10 text-gray-500 border-gray-500/20"
+    };
+    return (
+        <span className={clsx("px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border", (styles as any)[status] || styles.planned)}>
+            {status}
+        </span>
     );
 }

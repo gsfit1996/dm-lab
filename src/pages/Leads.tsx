@@ -1,30 +1,59 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useDMLab } from '../context/DMLabContext';
-import { Search, MoreVertical, Trash2, UserPlus, Linkedin } from 'lucide-react';
+import { Search, MoreVertical, Trash2, UserPlus, Linkedin, MessageSquare, Bot } from 'lucide-react';
 import type { Lead, LeadStage } from '../types';
 import clsx from 'clsx';
 import { v4 as uuidv4 } from 'uuid';
 
 const STAGES: { value: LeadStage; label: string; color: string }[] = [
-    { value: 'A', label: 'Initiated (A)', color: 'bg-blue-500/10 text-blue-400' },
-    { value: 'S', label: 'Seen (S)', color: 'bg-indigo-500/10 text-indigo-400' },
-    { value: 'B', label: 'Engaged (B)', color: 'bg-purple-500/10 text-purple-400' },
-    { value: 'C', label: 'Calendly (C)', color: 'bg-pink-500/10 text-pink-400' },
-    { value: 'D', label: 'Booked (D)', color: 'bg-emerald-500/10 text-emerald-400' },
-    { value: 'X', label: 'Lost (X)', color: 'bg-red-500/10 text-red-400' },
+    { value: 'REQUESTED', label: 'Requested', color: 'bg-blue-500/10 text-blue-400' },
+    { value: 'CONNECTED', label: 'Connected', color: 'bg-indigo-500/10 text-indigo-400' },
+    { value: 'PERMISSION_SENT', label: 'Perm. Sent', color: 'bg-purple-500/10 text-purple-400' },
+    { value: 'PERMISSION_POS', label: 'Perm. Pos (+)', color: 'bg-pink-500/10 text-pink-400' },
+    { value: 'OFFER_POS', label: 'Offer/Intent', color: 'bg-orange-500/10 text-orange-400' },
+    { value: 'BOOKED', label: 'Booked', color: 'bg-emerald-500/10 text-emerald-400' },
+    { value: 'LOST', label: 'Lost', color: 'bg-red-500/10 text-red-400' },
 ];
 
 export default function Leads() {
     const { state, actions } = useDMLab();
-    const { leads } = state;
+    const { leads, settings } = state;
     const [search, setSearch] = useState('');
     const [showAddForm, setShowAddForm] = useState(false);
+
+    // Available accounts
+    const accountList = useMemo(() => {
+        const raw = settings.accounts || [];
+        return raw.map((a: any) => typeof a === 'string' ? a : a.name);
+    }, [settings.accounts]);
+    const defaultAccount = accountList[0] || 'Account 1';
+
+    // Form State
     const [newLead, setNewLead] = useState<Partial<Lead>>({
         name: '',
         linkedinUrl: '',
-        stage: 'A',
+        stage: 'REQUESTED',
+        accountId: defaultAccount,
+        isOldLane: false,
         notes: ''
     });
+
+    // Conversation View State
+    const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
+    const activeLead = useMemo(() => leads.find(l => l.id === activeLeadId), [leads, activeLeadId]);
+    const [historyEdit, setHistoryEdit] = useState('');
+
+    const openConversation = (lead: Lead) => {
+        setActiveLeadId(lead.id);
+        setHistoryEdit(lead.conversationHistory || '');
+    };
+
+    const saveConversation = () => {
+        if (activeLeadId) {
+            actions.updateLead(activeLeadId, { conversationHistory: historyEdit });
+            setActiveLeadId(null);
+        }
+    };
 
     const filteredLeads = leads.filter(l =>
         l.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -37,13 +66,17 @@ export default function Leads() {
             id: uuidv4(),
             name: newLead.name || 'Unknown',
             linkedinUrl: newLead.linkedinUrl || '',
-            stage: newLead.stage as LeadStage || 'A',
+            stage: newLead.stage as LeadStage || 'REQUESTED',
             notes: newLead.notes || '',
+            accountId: newLead.accountId || defaultAccount,
+            isOldLane: newLead.isOldLane || false,
+
+            dateInitiated: new Date().toISOString().split('T')[0],
             lastInteraction: new Date().toISOString().split('T')[0],
             createdAt: new Date().toISOString()
         };
         actions.addLead(lead);
-        setNewLead({ name: '', linkedinUrl: '', stage: 'A', notes: '' });
+        setNewLead({ name: '', linkedinUrl: '', stage: 'REQUESTED', accountId: defaultAccount, isOldLane: false, notes: '' });
         setShowAddForm(false);
     };
 
@@ -77,10 +110,59 @@ export default function Leads() {
                 />
             </div>
 
+            {/* Conversation / Edit Modal */}
+            {activeLead && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-[var(--bg-card)] w-full max-w-2xl rounded-2xl shadow-2xl border border-border flex flex-col max-h-[90vh]">
+                        <div className="p-4 border-b border-border flex justify-between items-center">
+                            <div>
+                                <h3 className="font-bold text-lg text-white">{activeLead.name}</h3>
+                                <p className="text-xs text-muted-foreground">Smart Context & History</p>
+                            </div>
+                            <button onClick={() => setActiveLeadId(null)} className="p-2 hover:bg-secondary rounded">✕</button>
+                        </div>
+
+                        <div className="flex-1 p-0 flex flex-col overflow-hidden">
+                            <div className="p-4 bg-secondary/10 border-b border-border">
+                                <div className="flex gap-2 mb-2">
+                                    <span className={clsx("text-xs font-bold px-2 py-1 rounded bg-secondary", activeLead.stage === 'BOOKED' ? 'text-emerald-500' : 'text-primary')}>
+                                        {activeLead.stage}
+                                    </span>
+                                    <span className="text-xs font-mono opacity-50 px-2 py-1">{activeLead.accountId}</span>
+                                </div>
+                                <div className="text-sm italic opacity-70">
+                                    {activeLead.notes || "No notes provided."}
+                                </div>
+                            </div>
+
+                            <div className="flex-1 flex flex-col p-4 gap-2 min-h-[300px]">
+                                <label className="text-xs font-bold text-muted-foreground uppercase flex justify-between">
+                                    <span>Conversation History</span>
+                                    <span className="flex items-center gap-1 text-primary cursor-pointer hover:underline">
+                                        <Bot size={12} /> AI Analyze (Coming Soon)
+                                    </span>
+                                </label>
+                                <textarea
+                                    className="flex-1 bg-secondary/20 border border-border rounded-lg p-3 text-sm font-mono resize-none focus:ring-1 focus:ring-primary outline-none"
+                                    placeholder="Paste LinkedIn conversation here..."
+                                    value={historyEdit}
+                                    onChange={e => setHistoryEdit(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="p-4 border-t border-border flex justify-between bg-black/20">
+                            <button onClick={() => setActiveLeadId(null)} className="btn btn-ghost text-xs">Cancel</button>
+                            <button onClick={saveConversation} className="btn text-xs">Save Context</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {showAddForm && (
                 <div className="card border-primary/50">
                     <h3 className="mb-4">New Prospect</h3>
-                    <form onSubmit={handleAddLead} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <form onSubmit={handleAddLead} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <label className="flex flex-col gap-1">
                             <span className="text-xs font-bold text-muted-foreground uppercase">Name</span>
                             <input className="input" value={newLead.name} onChange={e => setNewLead({ ...newLead, name: e.target.value })} required placeholder="John Doe" />
@@ -96,10 +178,21 @@ export default function Leads() {
                             </select>
                         </label>
                         <label className="flex flex-col gap-1">
+                            <span className="text-xs font-bold text-muted-foreground uppercase">Account</span>
+                            <select className="input" value={newLead.accountId} onChange={e => setNewLead({ ...newLead, accountId: e.target.value })}>
+                                {accountList.map(a => <option key={a} value={a}>{a}</option>)}
+                            </select>
+                        </label>
+                        <label className="flex items-center gap-2 mt-6">
+                            <input type="checkbox" checked={newLead.isOldLane} onChange={e => setNewLead({ ...newLead, isOldLane: e.target.checked })} className="w-4 h-4" />
+                            <span className="text-xs font-bold text-muted-foreground uppercase">Old Lane?</span>
+                        </label>
+                        <label className="flex flex-col gap-1 col-span-full">
                             <span className="text-xs font-bold text-muted-foreground uppercase">Notes</span>
                             <input className="input" value={newLead.notes} onChange={e => setNewLead({ ...newLead, notes: e.target.value })} placeholder="CEO at TechCorp..." />
                         </label>
-                        <div className="md:col-span-2 flex justify-end gap-2 mt-2">
+
+                        <div className="col-span-full flex justify-end gap-2 mt-2">
                             <button type="button" onClick={() => setShowAddForm(false)} className="btn btn-ghost">Cancel</button>
                             <button type="submit" className="btn">Add Prospect</button>
                         </div>
@@ -107,25 +200,36 @@ export default function Leads() {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="flex overflow-x-auto pb-6 gap-4 min-h-[calc(100vh-200px)]">
                 {STAGES.map(stage => {
                     const stageLeads = filteredLeads.filter(l => l.stage === stage.value);
                     return (
-                        <div key={stage.value} className="flex flex-col gap-3">
-                            <div className={clsx("p-2 rounded-lg font-bold text-xs uppercase tracking-widest flex justify-between items-center", stage.color)}>
+                        <div key={stage.value} className="flex-none w-[280px] flex flex-col gap-3">
+                            <div className={clsx("p-2 rounded-lg font-bold text-xs uppercase tracking-widest flex justify-between items-center sticky top-0 backdrop-blur-md z-10", stage.color)}>
                                 {stage.label}
                                 <span className="bg-black/20 px-2 py-0.5 rounded-full">{stageLeads.length}</span>
                             </div>
-                            <div className="flex flex-col gap-3 min-h-[100px]">
+                            <div className="flex flex-col gap-3 h-full">
                                 {stageLeads.map(lead => (
-                                    <div key={lead.id} className="card-base p-4 group">
+                                    <div key={lead.id} className="card-base p-4 group relative hover:ring-1 hover:ring-primary/50 transition-all">
                                         <div className="flex justify-between items-start mb-2">
-                                            <div className="font-bold text-white group-hover:text-primary transition-colors">{lead.name}</div>
+                                            <div>
+                                                <div className="font-bold text-white group-hover:text-primary transition-colors cursor-pointer" onClick={() => openConversation(lead)}>{lead.name}</div>
+                                                <div className="text-[10px] text-muted-foreground">{lead.accountId || defaultAccount}</div>
+                                            </div>
                                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <button onClick={() => actions.deleteLead(lead.id)} className="p-1 hover:text-red-500"><Trash2 size={14} /></button>
                                             </div>
                                         </div>
                                         <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{lead.notes || 'No notes'}</p>
+
+                                        {/* Smart Context Indicator */}
+                                        {lead.conversationHistory && (
+                                            <div className="mb-3 flex items-center gap-1.5 text-[10px] text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded w-fit">
+                                                <MessageSquare size={10} /> Has Context
+                                            </div>
+                                        )}
+
                                         <div className="flex items-center justify-between mt-auto">
                                             <div className="text-[10px] text-muted-foreground opacity-50">Last: {lead.lastInteraction}</div>
                                             <div className="flex gap-2">
@@ -155,10 +259,11 @@ export default function Leads() {
                                                 </div>
                                             </div>
                                         </div>
+                                        {lead.isOldLane && <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-500" title="Old Lane" />}
                                     </div>
                                 ))}
                                 {stageLeads.length === 0 && (
-                                    <div className="h-20 border-2 border-dashed border-border rounded-2xl flex items-center justify-center text-[10px] text-muted-foreground font-bold uppercase tracking-widest opacity-30">
+                                    <div className="h-full min-h-[100px] border-2 border-dashed border-border rounded-2xl flex items-center justify-center text-[10px] text-muted-foreground font-bold uppercase tracking-widest opacity-30">
                                         Empty
                                     </div>
                                 )}

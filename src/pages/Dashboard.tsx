@@ -1,25 +1,26 @@
 import { useMemo, useState } from 'react';
 import { useDMLab } from '../context/DMLabContext';
-
+import { computeAggregates, computeKpis } from '../utils/kpiCalculator';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    LineChart, Line
+    AreaChart, Area
 } from 'recharts';
 import { format, startOfWeek, parseISO, subDays } from 'date-fns';
 import { motion } from 'framer-motion';
-import { Download, Target } from 'lucide-react';
-
+import { Download, Target, Sliders, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
+import ForecastingWidget from '../components/ForecastingWidget';
 
 export default function Dashboard() {
     const { state, actions } = useDMLab();
-    const { dailyLogs, experiments, goals } = state;
+    const { dailyLogs, experiments, goals, kpiTargets, settings } = state;
 
     // Filter State
     const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d' | 'custom'>('all');
     const [customStartDate, setCustomStartDate] = useState('');
     const [customEndDate, setCustomEndDate] = useState('');
     const [selectedCampaign, setSelectedCampaign] = useState<string>('all');
+    const [accountFilter, setAccountFilter] = useState<string>('all');
 
     // Available campaigns
     const campaigns = useMemo(() => {
@@ -27,79 +28,68 @@ export default function Dashboard() {
         return ['all', ...unique];
     }, [dailyLogs]);
 
+    // Available accounts
+    const accounts = useMemo(() => {
+        const raw = settings.accounts || [];
+        const names = raw.map((a: any) => typeof a === 'string' ? a : a.name);
+        return ['all', ...names];
+    }, [settings.accounts]);
+
+    const defaultAccount = accounts[1] || 'Account 1'; // 0 is 'all'
+
     // Filtered logs
     const filteredLogs = useMemo(() => {
         let logs = [...dailyLogs];
         const today = new Date();
 
-        // Date filtering
+        // Account Filter
+        if (accountFilter !== 'all') {
+            logs = logs.filter(l => (l.accountId || defaultAccount) === accountFilter);
+        }
+
+        // Exclude Old Lane Logs from MAIN KPIs
+        const oldLaneLogs = logs.filter(l => l.isOldLane);
+        const activeLogs = logs.filter(l => !l.isOldLane);
+
+        // Date filtering on ACTIVE logs
+        let resultingLogs = activeLogs;
         if (dateFilter === '7d') {
             const cutoff = format(subDays(today, 7), 'yyyy-MM-dd');
-            logs = logs.filter(l => l.date >= cutoff);
+            resultingLogs = resultingLogs.filter(l => l.date >= cutoff);
         } else if (dateFilter === '30d') {
             const cutoff = format(subDays(today, 30), 'yyyy-MM-dd');
-            logs = logs.filter(l => l.date >= cutoff);
+            resultingLogs = resultingLogs.filter(l => l.date >= cutoff);
         } else if (dateFilter === 'custom' && customStartDate && customEndDate) {
-            logs = logs.filter(l => l.date >= customStartDate && l.date <= customEndDate);
+            resultingLogs = resultingLogs.filter(l => l.date >= customStartDate && l.date <= customEndDate);
         }
 
         // Campaign filtering
         if (selectedCampaign !== 'all') {
-            logs = logs.filter(l => l.campaign === selectedCampaign);
+            resultingLogs = resultingLogs.filter(l => l.campaign === selectedCampaign);
         }
 
-        return logs;
-    }, [dailyLogs, dateFilter, customStartDate, customEndDate, selectedCampaign]);
+        return { main: resultingLogs, oldLane: oldLaneLogs };
+    }, [dailyLogs, dateFilter, customStartDate, customEndDate, selectedCampaign, accountFilter, defaultAccount]);
 
-    // Weekly stats for goals
+    // 1. Aggregates & KPIs
+    const aggregates = useMemo(() => computeAggregates(filteredLogs.main), [filteredLogs.main]);
+    const kpis = useMemo(() => computeKpis(aggregates, kpiTargets), [aggregates, kpiTargets]);
+
+    // 2. Weekly stats for goals (Active logs only)
     const thisWeekStats = useMemo(() => {
         const weekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
-        const weekLogs = dailyLogs.filter(l => l.date >= weekStart);
+        const weekLogs = filteredLogs.main.filter(l => l.date >= weekStart);
         return {
-            sent: weekLogs.reduce((sum, l) => sum + l.sent, 0),
-            booked: weekLogs.reduce((sum, l) => sum + l.booked, 0)
+            connectionRequests: weekLogs.reduce((sum, l) => sum + (l.connectionRequestsSent || 0), 0),
+            permissionSent: weekLogs.reduce((sum, l) => sum + (l.permissionMessagesSent || 0), 0),
+            booked: weekLogs.reduce((sum, l) => sum + (l.bookedCalls || 0), 0)
         };
-    }, [dailyLogs]);
+    }, [filteredLogs.main]);
 
-    // 1. Aggregates (from filtered logs)
-    const stats = useMemo(() => {
-        return filteredLogs.reduce((acc, log) => ({
-            sent: acc.sent + log.sent,
-            seen: acc.seen + (log.seen || 0),
-            accepted: acc.accepted + log.accepted,
-            replied: acc.replied + log.replied,
-            positiveReplies: acc.positiveReplies + log.positiveReplies,
-            calendlySent: acc.calendlySent + (log.calendlySent || 0),
-            booked: acc.booked + log.booked,
-            attended: acc.attended + (log.attended || 0),
-            closed: acc.closed + (log.closed || 0),
-        }), {
-            sent: 0, seen: 0, accepted: 0, replied: 0, positiveReplies: 0, calendlySent: 0, booked: 0, attended: 0, closed: 0
-        });
-    }, [filteredLogs]);
-
-    // 2. DM Sorcery Rates
-    const rates = useMemo(() => {
-        const safeDiv = (n: number, d: number) => d === 0 ? 0 : n / d;
-        return {
-            msr: safeDiv(stats.seen, stats.sent),            // Media Seen Rate
-            prr: safeDiv(stats.positiveReplies, stats.seen), // Positive Reply Rate (Seen -> Positive)
-            csr: safeDiv(stats.calendlySent, stats.seen),    // Calendly Sent Rate (Seen -> Calendly)
-            abr: safeDiv(stats.booked, stats.sent),          // Appointment Booking Rate (Sent -> Booked)
-            srr: safeDiv(stats.attended, stats.booked),     // Show up rate (Booked -> Attended)
-            cr: safeDiv(stats.closed, stats.attended),       // Close Rate (Attended -> Closed)
-
-            // Secondary Metrics
-            msbr: safeDiv(stats.positiveReplies, stats.seen),
-            bcr: safeDiv(stats.calendlySent, stats.positiveReplies),
-            cdr: safeDiv(stats.booked, stats.calendlySent)
-        };
-    }, [stats]);
-
-    // 3. Weekly Volume Data
+    // 3. Weekly Volume Chart Data
     const weeklyData = useMemo(() => {
-        const weeks: Record<string, { week: string; sent: number; seen: number; booked: number }> = {};
-        const sortedLogs = [...filteredLogs].sort((a, b) => a.date.localeCompare(b.date));
+        const weeks: Record<string, { week: string; sent: number; booked: number; permissionSent: number }> = {};
+        const sortedLogs = [...filteredLogs.main].sort((a, b) => a.date.localeCompare(b.date));
 
         sortedLogs.forEach(log => {
             const date = parseISO(log.date);
@@ -107,63 +97,60 @@ export default function Dashboard() {
             const key = format(monday, 'yyyy-MM-dd');
 
             if (!weeks[key]) {
-                weeks[key] = { week: format(monday, 'MMM dd'), sent: 0, seen: 0, booked: 0 };
+                weeks[key] = { week: format(monday, 'MMM dd'), sent: 0, permissionSent: 0, booked: 0 };
             }
-            weeks[key].sent += log.sent;
-            weeks[key].seen += (log.seen || 0);
-            weeks[key].booked += log.booked;
+            weeks[key].sent += log.connectionRequestsSent;
+            weeks[key].permissionSent += log.permissionMessagesSent;
+            weeks[key].booked += log.bookedCalls;
         });
 
         return Object.values(weeks);
-    }, [filteredLogs]);
+    }, [filteredLogs.main]);
 
-    // 4. Funnel Data (Initiate -> Seen -> Engaged -> Calendly -> Booked -> Attended -> Closed)
+    // 4. Funnel Data
     const funnelData = useMemo(() => [
-        { stage: 'A (Initiate)', count: stats.sent },
-        { stage: 'S (Seen)', count: stats.seen },
-        { stage: 'B (Engaged)', count: stats.positiveReplies },
-        { stage: 'C (Calendly)', count: stats.calendlySent },
-        { stage: 'D (Booked)', count: stats.booked },
-        { stage: 'Attended', count: stats.attended },
-        { stage: 'Closed', count: stats.closed },
-    ], [stats]);
+        { stage: 'Requested', count: aggregates.connectionRequestsSent },
+        { stage: 'Connected', count: aggregates.connectionsAccepted },
+        { stage: 'Perm. Sent', count: aggregates.permissionMessagesSent },
+        { stage: 'Perm. Pos (+)', count: aggregates.permissionPositives },
+        { stage: 'Offer/Intent', count: aggregates.offerPositives },
+        { stage: 'Booked', count: aggregates.bookedCalls },
+    ], [aggregates]);
 
-    // 5. Experiment Summaries (Multivariate)
-    const experimentSummaries = useMemo(() => {
-        return experiments.map(exp => {
-            const logs = filteredLogs.filter(l => l.experimentId === exp.id);
+    // 5. Old Lane Data
+    const oldLaneStats = useMemo(() => {
+        return filteredLogs.oldLane.reduce((acc, log) => ({
+            sent: acc.sent + (log.permissionMessagesSent || 0),
+            booked: acc.booked + (log.bookedCalls || 0)
+        }), { sent: 0, booked: 0 });
+    }, [filteredLogs.oldLane]);
 
-            const variantStats = exp.variants.map(v => {
-                const vLogs = logs.filter(l => l.variantId === v.id);
-                const seen = vLogs.reduce((s, l) => s + (l.seen || 0), 0);
-                const positive = vLogs.reduce((s, l) => s + l.positiveReplies, 0);
-                const rate = seen === 0 ? 0 : positive / seen;
-                const isValid = seen >= 60;
-                return { ...v, seen, positive, rate, isValid };
-            });
-
-            const winner = variantStats.reduce((prev, current) => (prev.rate > current.rate) ? prev : current, variantStats[0]);
-
-            return { ...exp, variantStats, winner };
-        });
-    }, [experiments, filteredLogs]);
-
-    // CSV Export function
+    // EXPORT
     const exportCSV = () => {
+        const headers = [
+            'Date', 'Account', 'Old Lane', 'Campaign',
+            'Conn. Sent', 'Conn. Acc',
+            'Perm. Sent', 'Perm. Seen', 'Perm. Pos',
+            'Offer Pos', 'Booked Call', 'Notes'
+        ];
+
+        const allLogsToExport = [...filteredLogs.main, ...filteredLogs.oldLane].sort((a, b) => b.date.localeCompare(a.date));
+
         const csvData = [
-            ['Date', 'Campaign', 'Channel', 'Sent', 'Seen', 'Accepted', 'Replied', 'Positive Replies', 'Calendly Sent', 'Booked', 'Notes'],
-            ...dailyLogs.map(log => [
+            headers,
+            ...allLogsToExport.map(log => [
                 log.date,
+                log.accountId || defaultAccount,
+                log.isOldLane ? 'Yes' : 'No',
                 log.campaign,
-                log.channel,
-                log.sent,
-                log.seen || 0,
-                log.accepted,
-                log.replied,
-                log.positiveReplies,
-                log.calendlySent || 0,
-                log.booked,
-                log.notes
+                log.connectionRequestsSent,
+                log.connectionsAccepted,
+                log.permissionMessagesSent,
+                log.permissionSeen,
+                log.permissionPositives,
+                log.offerPositives,
+                log.bookedCalls,
+                `"${log.notes}"`
             ])
         ];
 
@@ -172,326 +159,234 @@ export default function Dashboard() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `dm_lab_export_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+        a.download = `dm_lab_export_v2.csv`;
         a.click();
         URL.revokeObjectURL(url);
     };
 
     return (
         <div className="flex flex-col gap-8 pb-10 max-w-[1600px] mx-auto">
-            {/* Filters & Controls */}
-            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+            {/* Filters */}
+            <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
                 <div className="flex flex-wrap gap-3">
-                    <select
-                        value={dateFilter}
-                        onChange={(e) => setDateFilter(e.target.value as any)}
-                        className="px-4 py-2 bg-card text-foreground rounded-xl border border-border text-sm font-medium hover:bg-secondary/30 transition-colors"
-                    >
+                    <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as any)} className="filter-select">
                         <option value="all">All Time</option>
                         <option value="7d">Last 7 Days</option>
                         <option value="30d">Last 30 Days</option>
-                        <option value="custom">Custom Range</option>
+                        <option value="custom">Custom</option>
                     </select>
 
                     {dateFilter === 'custom' && (
                         <>
-                            <input
-                                type="date"
-                                value={customStartDate}
-                                onChange={(e) => setCustomStartDate(e.target.value)}
-                                className="px-4 py-2 bg-card text-foreground rounded-xl border border-border text-sm"
-                            />
-                            <input
-                                type="date"
-                                value={customEndDate}
-                                onChange={(e) => setCustomEndDate(e.target.value)}
-                                className="px-4 py-2 bg-card text-foreground rounded-xl border border-border text-sm"
-                            />
+                            <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className="filter-input" />
+                            <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className="filter-input" />
                         </>
                     )}
 
-                    <select
-                        value={selectedCampaign}
-                        onChange={(e) => setSelectedCampaign(e.target.value)}
-                        className="px-4 py-2 bg-card text-foreground rounded-xl border border-border text-sm font-medium hover:bg-secondary/30 transition-colors"
-                    >
-                        {campaigns.map(c => (
-                            <option key={c} value={c}>{c === 'all' ? 'All Campaigns' : c}</option>
-                        ))}
+                    <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} className="filter-select">
+                        {accounts.map(a => <option key={a} value={a}>{a === 'all' ? 'All Accounts' : a}</option>)}
+                    </select>
+
+                    <select value={selectedCampaign} onChange={(e) => setSelectedCampaign(e.target.value)} className="filter-select">
+                        {campaigns.map(c => <option key={c} value={c}>{c === 'all' ? 'All Campaigns' : c}</option>)}
                     </select>
                 </div>
 
-                <button
-                    onClick={exportCSV}
-                    className="flex items-center gap-2 px-4 py-2 bg-secondary text-foreground rounded-xl font-medium hover:bg-secondary/80 transition-colors text-sm"
-                >
-                    <Download size={16} />
-                    Export CSV
-                </button>
-            </div>
-
-            {/* Weekly Goals */}
-            <div className="card-base">
-                <div className="flex items-center gap-2 mb-6">
-                    <Target className="text-primary" size={20} />
-                    <h3 className="font-semibold text-white">Weekly Goals</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <GoalProgressBar
-                        label="DMs Sent"
-                        current={thisWeekStats.sent}
-                        target={goals.weeklySent}
-                        onTargetChange={(val) => actions.updateGoals({ weeklySent: val })}
-                    />
-                    <GoalProgressBar
-                        label="Meetings Booked"
-                        current={thisWeekStats.booked}
-                        target={goals.weeklyBooked}
-                        onTargetChange={(val) => actions.updateGoals({ weeklyBooked: val })}
-                    />
-                </div>
-            </div>
-
-            {/* Primary KPIs (DM Sorcery) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
-                <RateCard title="MSR (Media Seen)" value={rates.msr} threshold={state.kpiTargets.msr} subtitle={`${stats.seen} / ${stats.sent}`} onTargetChange={(val: number) => actions.updateKpiTargets({ msr: val })} />
-                <RateCard title="PRR (Positive Reply)" value={rates.prr} threshold={state.kpiTargets.prr} subtitle={`${stats.positiveReplies} / ${stats.seen}`} onTargetChange={(val: number) => actions.updateKpiTargets({ prr: val })} />
-                <RateCard title="CSR (Calendly Sent)" value={rates.csr} threshold={state.kpiTargets.csr} subtitle={`${stats.calendlySent} / ${stats.seen}`} onTargetChange={(val: number) => actions.updateKpiTargets({ csr: val })} />
-                <RateCard title="ABR (Booked Rate)" value={rates.abr} threshold={state.kpiTargets.abr} subtitle={`${stats.booked} / ${stats.sent}`} onTargetChange={(val: number) => actions.updateKpiTargets({ abr: val })} />
-                <RateCard title="SRR (Show up Rate)" value={rates.srr} threshold={state.kpiTargets.srr} subtitle={`${stats.attended} / ${stats.booked}`} onTargetChange={(val: number) => actions.updateKpiTargets({ srr: val })} />
-                <RateCard title="CR (Close Rate)" value={rates.cr} threshold={state.kpiTargets.cr} subtitle={`${stats.closed} / ${stats.attended}`} onTargetChange={(val: number) => actions.updateKpiTargets({ cr: val })} />
-            </div>
-
-            {/* Secondary Row Rates */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                <RateCard title="MS > B (Engaged)" value={rates.msbr} threshold={state.kpiTargets.msbr} onTargetChange={(val: number) => actions.updateKpiTargets({ msbr: val })} />
-                <RateCard title="B > C (Qualified)" value={rates.bcr} threshold={state.kpiTargets.bcr} onTargetChange={(val: number) => actions.updateKpiTargets({ bcr: val })} />
-                <RateCard title="C > D (Closing)" value={rates.cdr} threshold={state.kpiTargets.cdr} onTargetChange={(val: number) => actions.updateKpiTargets({ cdr: val })} />
-            </div>
-
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-auto lg:h-[420px]">
-                <div className="card-base flex flex-col h-[400px] lg:h-full">
-                    <div className="flex items-center justify-between mb-8">
-                        <h3 className="font-semibold text-white">Weekly volume</h3>
-                        <div className="px-3 py-1 rounded-full bg-secondary text-xs text-secondary-foreground font-medium">
-                            Sent / Accepted / Replied
-                        </div>
+                <div className="flex gap-4 items-center w-full xl:w-auto">
+                    {/* Bottleneck Badge */}
+                    <div className="flex-1 xl:flex-none flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border)] text-sm shadow-sm">
+                        <span className="text-muted-foreground font-medium whitespace-nowrap">Bottleneck:</span>
+                        <span className="font-bold text-foreground text-ellipsis overflow-hidden whitespace-nowrap">{kpis.bottleneck}</span>
                     </div>
+
+                    <button onClick={exportCSV} className="btn-secondary whitespace-nowrap">
+                        <Download size={16} /> Export
+                    </button>
+                </div>
+            </div>
+
+            {/* Weekly Goals Widget */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="card-base col-span-1 lg:col-span-2">
+                    <div className="flex items-center gap-2 mb-6">
+                        <Target className="text-primary" size={20} />
+                        <h3 className="font-semibold text-white">Weekly Goals ({accountFilter === 'all' ? 'Combined' : accountFilter})</h3>
+                    </div>
+
+                    {/* Goals Progress Bars */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <GoalProgressBar
+                            label="Requests Sent"
+                            current={thisWeekStats.connectionRequests}
+                            target={goals.weeklyConnectionRequests}
+                            onUpdate={(v) => actions.updateGoals({ weeklyConnectionRequests: v })}
+                        />
+                        <GoalProgressBar
+                            label="Permission Sent"
+                            current={thisWeekStats.permissionSent}
+                            target={goals.weeklyPermissionSent}
+                            onUpdate={(v) => actions.updateGoals({ weeklyPermissionSent: v })}
+                        />
+                        <GoalProgressBar
+                            label="Booked Calls"
+                            current={thisWeekStats.booked}
+                            target={goals.weeklyBooked}
+                            onUpdate={(v) => actions.updateGoals({ weeklyBooked: v })}
+                        />
+                    </div>
+                </div>
+
+                {/* Old Lane Mini Panel */}
+                <div className="card-base bg-secondary/5 border-dashed border-amber-500/20">
+                    <h3 className="font-semibold text-amber-500 mb-4 flex items-center gap-2">
+                        Old Leads Lane
+                        <span className="text-[10px] bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded border border-amber-500/20">Excluded from KPI</span>
+                    </h3>
+                    <div className="flex flex-col gap-4">
+                        <div className="flex justify-between items-end">
+                            <span className="text-sm text-muted-foreground">Permission Sent</span>
+                            <span className="text-2xl font-mono text-foreground">{oldLaneStats.sent}</span>
+                        </div>
+                        <div className="flex justify-between items-end">
+                            <span className="text-sm text-muted-foreground">Booked</span>
+                            <span className="text-2xl font-mono text-emerald-500 font-bold">{oldLaneStats.booked}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2 opacity-60">
+                            Track old lead reactivation separately to avoid skewing primary efficiency metrics.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Forecasting Widget */}
+            <ForecastingWidget cr={kpis.cr} prr={kpis.prr} abr={kpis.abr} bookedRate={kpis.bookedRate} />
+
+            {/* KPI Tiles */}
+            <div>
+                <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Primary Efficiency Metrics</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <RateCard title="Connection Rate (CR)" value={kpis.cr} target={kpiTargets.cr} status={kpis.crStatus} subtitle={`${aggregates.connectionsAccepted} / ${aggregates.connectionRequestsSent}`} onTargetChange={(v) => actions.updateKpiTargets({ cr: v })} />
+                    <RateCard title="Positive Reply (PRR)" value={kpis.prr} target={kpiTargets.prr} status={kpis.prrStatus} subtitle={`${aggregates.permissionPositives} / ${aggregates.permissionMessagesSent}`} onTargetChange={(v) => actions.updateKpiTargets({ prr: v })} />
+                    <RateCard title="Appt Booking (ABR)" value={kpis.abr} target={kpiTargets.abr} status={kpis.abrStatus} subtitle={`${aggregates.offerPositives} / ${aggregates.permissionMessagesSent}`} onTargetChange={(v) => actions.updateKpiTargets({ abr: v })} />
+                    <RateCard title="Booked KPI" value={kpis.bookedRate} target={kpiTargets.booked} status={kpis.bookedStatus} subtitle={`${aggregates.bookedCalls} / ${aggregates.permissionMessagesSent}`} onTargetChange={(v) => actions.updateKpiTargets({ booked: v })} />
+                </div>
+            </div>
+
+            {/* Diagnostic Tiles */}
+            <div>
+                <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Diagnostic Ratios</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <RateCard title="Pos -> ABR Ratio" value={kpis.posToAbr} target={kpiTargets.posToAbr} status="neutral" subtitle={`${aggregates.offerPositives} / ${aggregates.permissionPositives}`} onTargetChange={(v) => actions.updateKpiTargets({ posToAbr: v })} />
+                    <RateCard title="ABR -> Booked" value={kpis.abrToBooked} target={kpiTargets.abrToBooked} status="neutral" subtitle={`${aggregates.bookedCalls} / ${aggregates.offerPositives}`} onTargetChange={(v) => actions.updateKpiTargets({ abrToBooked: v })} />
+                </div>
+            </div>
+
+            {/* Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[400px]">
+                <div className="card-base flex flex-col">
+                    <h3 className="font-semibold text-white mb-6">Volume Trend</h3>
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={weeklyData} barGap={4}>
+                        <BarChart data={weeklyData}>
                             <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
-                            <XAxis dataKey="week" stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} tickMargin={10} />
+                            <XAxis dataKey="week" stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} />
                             <YAxis stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} />
-                            <Tooltip
-                                cursor={{ fill: '#27272a' }}
-                                contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px', color: '#fff' }}
-                            />
-                            <Bar dataKey="sent" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                            <Bar dataKey="accepted" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                            <Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px', color: '#fff' }} />
+                            <Bar dataKey="sent" name="Conn. Request" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                            <Bar dataKey="permissionSent" name="Perm. Sent" fill="#a855f7" radius={[4, 4, 0, 0]} maxBarSize={30} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
 
-                <div className="card-base flex flex-col h-[400px] lg:h-full">
-                    <div className="flex items-center justify-between mb-8">
-                        <h3 className="font-semibold text-white">Conversion funnel</h3>
-                        <div className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-500 text-xs font-medium border border-emerald-500/20">
-                            ABR {(rates.abr * 100).toFixed(0)}% / {(state.kpiTargets.abr * 100).toFixed(0)}%
-                        </div>
-                    </div>
+                <div className="card-base flex flex-col">
+                    <h3 className="font-semibold text-white mb-6">Conversion Funnel</h3>
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={funnelData}>
+                        <AreaChart data={funnelData}>
+                            <defs>
+                                <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                                </linearGradient>
+                            </defs>
                             <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
-                            <XAxis dataKey="stage" stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} tickMargin={10} />
+                            <XAxis dataKey="stage" stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} />
                             <YAxis stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} />
-                            <Tooltip
-                                contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px', color: '#fff' }}
-                            />
-                            <Line type="monotone" dataKey="count" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4, fill: '#8b5cf6', strokeWidth: 2, stroke: '#18181b' }} activeDot={{ r: 6 }} />
-                        </LineChart>
+                            <Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px', color: '#fff' }} />
+                            <Area type="monotone" dataKey="count" stroke="#10b981" fillOpacity={1} fill="url(#colorCount)" strokeWidth={3} />
+                        </AreaChart>
                     </ResponsiveContainer>
                 </div>
             </div>
-
-            {/* Experiment Summary */}
-            <div className="card-base">
-                <h3 className="font-semibold mb-6 text-white">Multivariate Experiment Lab</h3>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
-                                <th className="pb-4 font-medium pl-4">Experiment</th>
-                                <th className="pb-4 font-medium">Status</th>
-                                <th className="pb-4 font-medium">Top Variant</th>
-                                <th className="pb-4 font-medium">Volume (Seen)</th>
-                                <th className="pb-4 font-medium">Best PRR</th>
-                                <th className="pb-4 font-medium">Validity</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {experimentSummaries.map((exp) => (
-                                <tr key={exp.id} className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors">
-                                    <td className="py-4 pl-4">
-                                        <div className="font-medium text-foreground">{exp.name}</div>
-                                        <div className="text-xs text-muted-foreground truncate max-w-[200px]">{exp.hypothesis}</div>
-                                    </td>
-                                    <td className="py-4">
-                                        <StatusBadge status={exp.status} />
-                                    </td>
-                                    <td className="py-4 text-sm font-medium text-primary">
-                                        {exp.winner?.label || 'N/A'}
-                                    </td>
-                                    <td className="py-4 text-sm font-mono text-muted-foreground">
-                                        {exp.variantStats.reduce((s, v) => s + v.seen, 0)}
-                                    </td>
-                                    <td className="py-4 text-sm font-mono text-emerald-400">
-                                        {(exp.winner?.rate * 100).toFixed(1)}%
-                                    </td>
-                                    <td className="py-4">
-                                        <div className="flex flex-col gap-1">
-                                            {exp.variantStats.map(v => (
-                                                <div key={v.id} className="flex items-center gap-2 text-[10px]">
-                                                    <span className="w-8 font-bold opacity-70">{v.label}:</span>
-                                                    <div className="flex-1 h-1.5 bg-secondary rounded-full max-w-[60px] overflow-hidden">
-                                                        <div className={clsx("h-full transition-all", v.isValid ? "bg-emerald-500" : "bg-amber-500")} style={{ width: `${Math.min((v.seen / 60) * 100, 100)}%` }} />
-                                                    </div>
-                                                    <span className={clsx("font-medium", v.isValid ? "text-emerald-500" : "text-amber-500")}>
-                                                        {v.seen}/60
-                                                    </span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                            {experimentSummaries.length === 0 && (
-                                <tr>
-                                    <td colSpan={6} className="py-12 text-center text-muted-foreground">No experiments run yet.</td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
         </div>
     );
 }
 
-// Components
-
-function RateCard({ title, value, threshold, subtitle, onTargetChange }: any) {
+function RateCard({ title, value, target, status, subtitle, onTargetChange }: any) {
     const [editing, setEditing] = useState(false);
-    const [tempTarget, setTempTarget] = useState((threshold * 100).toFixed(1));
-    const safeValue = isNaN(value) ? 0 : value;
-    const isGood = safeValue >= threshold;
-
-    const handleSave = () => {
-        const num = parseFloat(tempTarget) / 100;
-        if (!isNaN(num) && num >= 0) {
-            onTargetChange(num);
-        }
-        setEditing(false);
-    };
+    const safeVal = isNaN(value) ? 0 : value;
+    const color = status === 'green' ? 'text-emerald-500' :
+        status === 'yellow' ? 'text-amber-500' :
+            status === 'red' ? 'text-red-500' : 'text-muted-foreground';
 
     return (
-        <div className="card-base flex flex-col justify-between h-[140px]">
+        <div className="card-base flex flex-col justify-between min-h-[140px]">
             <div>
-                <span className="text-secondary-foreground text-sm font-medium">{title}</span>
-                {subtitle && <div className="text-[10px] text-muted-foreground uppercase tracking-tight mt-0.5">{subtitle}</div>}
+                <span className="text-muted-foreground text-sm font-medium block">{title}</span>
+                {subtitle && <span className="text-[10px] text-muted-foreground opacity-50 font-mono mt-1 block">{subtitle}</span>}
             </div>
+
             <div>
-                <div className="text-4xl font-bold text-white">{(safeValue * 100).toFixed(1)}%</div>
-                <div className={clsx("text-xs mt-1 font-medium flex items-center gap-1", isGood ? "text-emerald-500" : "text-amber-500")}>
-                    <span>Target</span>
-                    {editing ? (
-                        <div className="flex items-center gap-1">
+                <div className="text-3xl font-bold text-foreground">{(safeVal * 100).toFixed(1)}%</div>
+
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
+                    <span className={clsx("text-xs font-bold uppercase tracking-wider", color)}>{status === 'neutral' ? 'Ratio' : status}</span>
+                    <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                        <span>Goal:</span>
+                        {editing ? (
                             <input
-                                type="number"
-                                step="0.1"
-                                value={tempTarget}
-                                onChange={(e) => setTempTarget(e.target.value)}
-                                onBlur={handleSave}
-                                onKeyPress={(e) => e.key === 'Enter' && handleSave()}
-                                className="w-12 h-5 px-1 bg-secondary border border-border rounded text-[10px] text-foreground font-mono"
                                 autoFocus
+                                type="number"
+                                className="w-10 bg-secondary px-1 py-0.5 rounded text-foreground text-xs"
+                                defaultValue={target}
+                                onBlur={(e) => { onTargetChange(parseFloat(e.target.value)); setEditing(false); }}
                             />
-                            <span>%</span>
-                        </div>
-                    ) : (
-                        <span
-                            onClick={() => { setTempTarget((threshold * 100).toFixed(1)); setEditing(true); }}
-                            className="cursor-pointer hover:underline underline-offset-2"
-                        >
-                            {(threshold * 100).toFixed(1)}%
-                        </span>
-                    )}
+                        ) : (
+                            <span onClick={() => setEditing(true)} className="hover:text-primary cursor-pointer border-b border-dashed border-muted-foreground/50">{target}%</span>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
     );
 }
 
-function StatusBadge({ status }: { status: string }) {
-    const styles = {
-        planned: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-        running: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-        paused: "bg-slate-500/10 text-slate-500 border-slate-500/20",
-        completed: "bg-indigo-500/10 text-indigo-500 border-indigo-500/20",
-        archived: "bg-gray-500/10 text-gray-500 border-gray-500/20"
-    };
-    return (
-        <span className={clsx("px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border", (styles as any)[status] || styles.planned)}>
-            {status}
-        </span>
-    );
-}
-
-function GoalProgressBar({ label, current, target, onTargetChange }: { label: string; current: number; target: number; onTargetChange: (val: number) => void }) {
+function GoalProgressBar({ label, current, target, onUpdate }: any) {
     const [editing, setEditing] = useState(false);
-    const [tempTarget, setTempTarget] = useState(target.toString());
-    const percentage = Math.min((current / target) * 100, 100);
-
-    const handleSave = () => {
-        const num = parseInt(tempTarget);
-        if (!isNaN(num) && num > 0) {
-            onTargetChange(num);
-        }
-        setEditing(false);
-    };
+    const pct = Math.min((current / target) * 100, 100);
 
     return (
         <div>
-            <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-foreground">{label}</span>
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-mono text-muted-foreground">
-                        {current} / {editing ? (
-                            <input
-                                type="number"
-                                value={tempTarget}
-                                onChange={(e) => setTempTarget(e.target.value)}
-                                onBlur={handleSave}
-                                onKeyPress={(e) => e.key === 'Enter' && handleSave()}
-                                className="w-16 px-1 bg-secondary border border-border rounded text-foreground"
-                                autoFocus
-                            />
-                        ) : (
-                            <span onClick={() => setEditing(true)} className="cursor-pointer hover:text-primary transition-colors">
-                                {target}
-                            </span>
-                        )}
-                    </span>
-                    <span className={clsx("text-xs font-bold", percentage >= 100 ? "text-emerald-500" : "text-amber-500")}>
-                        {percentage.toFixed(0)}%
-                    </span>
-                </div>
+            <div className="flex justify-between text-sm mb-1.5">
+                <span className="font-medium text-foreground">{label}</span>
+                <span className="font-mono text-muted-foreground text-xs">
+                    {current} /
+                    {editing ? (
+                        <input
+                            autoFocus
+                            type="number"
+                            className="w-12 bg-secondary px-1 ml-1 rounded text-foreground"
+                            defaultValue={target}
+                            onBlur={(e) => { onUpdate(parseInt(e.target.value)); setEditing(false); }}
+                        />
+                    ) : (
+                        <span onClick={() => setEditing(true)} className="hover:text-primary cursor-pointer ml-1">{target}</span>
+                    )}
+                </span>
             </div>
-            <div className="h-2 bg-secondary rounded-full overflow-hidden">
+            <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
                 <motion.div
                     initial={{ width: 0 }}
-                    animate={{ width: `${percentage}%` }}
-                    className={clsx("h-full rounded-full", percentage >= 100 ? "bg-emerald-500" : "bg-primary")}
+                    animate={{ width: `${pct}%` }}
+                    className={clsx("h-full rounded-full", pct >= 100 ? "bg-emerald-500" : "bg-primary")}
                 />
             </div>
         </div>

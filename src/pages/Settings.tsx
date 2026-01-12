@@ -1,14 +1,36 @@
+import { useState } from 'react';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useDMLab } from '../context/DMLabContext';
-import { CheckCircle, AlertTriangle, Database, Target, Save } from 'lucide-react';
+import { CONSTANTS } from '../types';
+import { CheckCircle, AlertTriangle, Database, Target, Save, Users, Plus, Trash2, Palette } from 'lucide-react';
 import clsx from 'clsx';
 
 export default function Settings() {
     const { state, actions } = useDMLab();
-    const { kpiTargets } = state;
+    const { kpiTargets, settings } = state;
+    const accounts = settings.accounts || CONSTANTS.ACCOUNTS;
+
+    // Use string array or object array? types.ts says Account[].
+    // CONSTANTS.ACCOUNTS was updated to [{id...}].
+    // If we are migrating from old data, it might still be string[]?
+    // The Migration logic or Context reducer should ensure it's Account[].
+    // Let's coerce for safety in UI
+    const safeAccounts = Array.isArray(accounts)
+        ? (typeof accounts[0] === 'string' ? accounts.map((a: any) => ({ id: a, name: a, color: '#3b82f6' })) : accounts)
+        : [];
+
+    const [newAccountName, setNewAccountName] = useState('');
+
+    const handleAddAccount = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (newAccountName.trim()) {
+            actions.addAccount(newAccountName.trim());
+            setNewAccountName('');
+        }
+    };
 
     const handleKpiUpdate = (key: string, val: string) => {
-        const num = parseFloat(val) / 100;
+        const num = parseFloat(val);
         if (!isNaN(num)) {
             actions.updateKpiTargets({ [key]: num });
         }
@@ -16,6 +38,88 @@ export default function Settings() {
 
     return (
         <div className="flex flex-col gap-6 max-w-2xl pb-20">
+            {/* Account Settings */}
+            <div className="card">
+                <h3 className="flex items-center gap-2 mb-4">
+                    <Users size={20} /> Accounts
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                    Manage the LinkedIn accounts you are tracking. Affects logging and dashboard filters.
+                </p>
+
+                <div className="flex flex-col gap-3 mb-6">
+                    {safeAccounts.map((acc: any, idx: number) => (
+                        <div key={acc.id || idx} className="flex items-center gap-3 p-2 bg-secondary/10 rounded-lg group border border-transparent hover:border-border transition-all">
+                            <div
+                                className="w-4 h-4 rounded-full"
+                                style={{ backgroundColor: acc.color || '#3b82f6' }}
+                                title="Account Color"
+                            />
+                            <span className="font-mono text-sm flex-1">{acc.name}</span>
+
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <label className="cursor-pointer p-1.5 hover:bg-secondary rounded text-muted-foreground hover:text-foreground">
+                                    <Palette size={14} />
+                                    <input
+                                        type="color"
+                                        className="sr-only"
+                                        value={acc.color || '#3b82f6'}
+                                        onChange={(e) => actions.updateAccount(acc.id, { color: e.target.value })}
+                                    />
+                                </label>
+                                <button
+                                    onClick={() => { if (confirm(`Delete account "${acc.name}"?`)) actions.deleteAccount(acc.id) }}
+                                    className="p-1.5 hover:bg-red-500/10 rounded text-muted-foreground hover:text-red-500"
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <form onSubmit={handleAddAccount} className="flex gap-2">
+                    <input
+                        className="input flex-1"
+                        placeholder="New Account Name (e.g. Gareth Profile)"
+                        value={newAccountName}
+                        onChange={e => setNewAccountName(e.target.value)}
+                    />
+                    <button type="submit" className="btn btn-secondary text-xs whitespace-nowrap" disabled={!newAccountName.trim()}>
+                        <Plus size={16} /> Add Account
+                    </button>
+                </form>
+            </div>
+
+            <div className="card">
+                <h3 className="flex items-center gap-2 mb-2">
+                    <Target size={20} /> Success Thresholds %
+                </h3>
+                <p className="text-sm text-muted-foreground mb-6">
+                    Customize the KPI targets (0-100%). These drive the bottleneck diagnostics and dashboard colors.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
+                    <div className="col-span-full">
+                        <h4 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 border-b border-border pb-1">Primary Metrics</h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
+                            <ThresholdInput label="Connection Rate (CR)" valueKey="cr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Accepted / Requests Sent" />
+                            <ThresholdInput label="Positive Reply Rate (PRR)" valueKey="prr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Positive Replies / Permission Sent" />
+                            <ThresholdInput label="Appt Booking Rate (ABR)" valueKey="abr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Offer or Intent+ / Permission Sent" />
+                            <ThresholdInput label="Booked KPI" valueKey="booked" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Booked Calls / Permission Sent" />
+                        </div>
+                    </div>
+
+                    <div className="col-span-full">
+                        <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3 border-b border-border pb-1">Secondary / Diagnostic</h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
+                            <ThresholdInput label="Pos -> ABR Ratio" valueKey="posToAbr" targets={kpiTargets} onChange={handleKpiUpdate} />
+                            <ThresholdInput label="ABR -> Booked Ratio" valueKey="abrToBooked" targets={kpiTargets} onChange={handleKpiUpdate} />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div className="card">
                 <h3 className="flex items-center gap-2 mb-4">
                     <Database size={20} /> Storage & Sync
@@ -51,42 +155,27 @@ export default function Settings() {
                     </button>
                 </div>
             </div>
+        </div>
+    );
+}
 
-            <div className="card">
-                <h3 className="flex items-center gap-2 mb-2">
-                    <Target size={20} /> Success Thresholds
-                </h3>
-                <p className="text-sm text-muted-foreground mb-6">
-                    Customize the percentage targets for your DM Sorcery funnel. These affect the Green/Yellow indicators on the dashboard.
-                </p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {[
-                        { key: 'msr', label: 'Media Seen Rate (MSR)' },
-                        { key: 'prr', label: 'Positive Reply Rate (PRR)' },
-                        { key: 'csr', label: 'Calendly Sent Rate (CSR)' },
-                        { key: 'abr', label: 'Booking Rate (ABR)' },
-                        { key: 'srr', label: 'Show up Rate (SRR)' },
-                        { key: 'cr', label: 'Close Rate (CR)' },
-                        { key: 'msbr', label: 'Seen > Engaged (MSBR)' },
-                        { key: 'bcr', label: 'Engaged > Calendly (BCR)' },
-                        { key: 'cdr', label: 'Calendly > Booked (CDR)' },
-                    ].map(({ key, label }) => (
-                        <div key={key} className="flex flex-col gap-1.5">
-                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{label}</span>
-                            <div className="relative">
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    className="input w-full pr-10 font-mono"
-                                    defaultValue={((kpiTargets as any)[key] * 100).toFixed(1)}
-                                    onBlur={(e) => handleKpiUpdate(key, e.target.value)}
-                                />
-                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">%</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
+function ThresholdInput({ label, valueKey, targets, onChange, tooltip }: any) {
+    const val = (targets as any)[valueKey] || 0;
+    return (
+        <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{label}</span>
+                {tooltip && <span className="text-[10px] text-muted-foreground opacity-50 hidden sm:block">{tooltip}</span>}
+            </div>
+            <div className="relative">
+                <input
+                    type="number"
+                    step="0.1"
+                    className="input w-full pr-10 font-mono"
+                    defaultValue={val} // Display "30" for 30
+                    onBlur={(e) => onChange(valueKey, e.target.value)}
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">%</span>
             </div>
         </div>
     );

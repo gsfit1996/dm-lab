@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import type { AppState, Experiment, DailyLog, Offer, Lead, KpiTargets } from '../types';
-import { CONSTANTS } from '../types';
+import { migrateData } from '../utils/migrations';
+import { AppState, Experiment, DailyLog, Offer, Lead, KpiTargets, CONSTANTS, Account } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 // Initial Empty State
@@ -12,11 +12,15 @@ const initialState: AppState = {
     leads: [],
     offers: [],
     goals: {
-        weeklySent: 100,
+        weeklyConnectionRequests: 100,
+        weeklyPermissionSent: 100,
         weeklyBooked: 5
     },
     kpiTargets: CONSTANTS.DEFAULT_KPI_TARGETS,
-    settings: { theme: 'dark' },
+    settings: {
+        theme: 'dark',
+        accounts: CONSTANTS.ACCOUNTS
+    },
 };
 
 interface DMLabContextType {
@@ -35,8 +39,14 @@ interface DMLabContextType {
         addOffer: (offer: Omit<Offer, 'id'>) => void;
         updateOffer: (id: string, updates: Partial<Offer>) => void;
         deleteOffer: (id: string) => void;
-        updateGoals: (goals: Partial<{ weeklySent: number; weeklyBooked: number }>) => void;
+        updateGoals: (goals: Partial<AppState['goals']>) => void;
         updateKpiTargets: (targets: Partial<KpiTargets>) => void;
+
+        // Account Actions
+        addAccount: (name: string) => void;
+        updateAccount: (id: string, updates: Partial<Account>) => void;
+        deleteAccount: (id: string) => void;
+
         saveData: () => Promise<void>;
         toggleTheme: () => void;
     };
@@ -58,14 +68,22 @@ type Action =
     | { type: 'ADD_OFFER'; payload: Offer }
     | { type: 'UPDATE_OFFER'; payload: { id: string; updates: Partial<Offer> } }
     | { type: 'DELETE_OFFER'; payload: string }
-    | { type: 'UPDATE_GOALS'; payload: Partial<{ weeklySent: number; weeklyBooked: number }> }
+    | { type: 'UPDATE_GOALS'; payload: Partial<AppState['goals']> }
     | { type: 'UPDATE_KPI_TARGETS'; payload: Partial<KpiTargets> }
-    | { type: 'TOGGLE_THEME' };
+    | { type: 'TOGGLE_THEME' }
+    | { type: 'ADD_ACCOUNT'; payload: Account }
+    | { type: 'UPDATE_ACCOUNT'; payload: { id: string; updates: Partial<Account> } }
+    | { type: 'DELETE_ACCOUNT'; payload: string };
 
 function reducer(state: AppState, action: Action): AppState {
     switch (action.type) {
         case 'SET_STATE':
-            return action.payload;
+            // Ensure accounts exist if loading old data
+            const settingsWithAccounts = {
+                ...action.payload.settings,
+                accounts: (action.payload.settings.accounts && action.payload.settings.accounts.length > 0 && typeof action.payload.settings.accounts[0] === 'object') ? action.payload.settings.accounts : CONSTANTS.ACCOUNTS
+            };
+            return { ...action.payload, settings: settingsWithAccounts as any };
         case 'ADD_EXPERIMENT':
             return { ...state, experiments: [...state.experiments, action.payload] };
         case 'UPDATE_EXPERIMENT':
@@ -112,6 +130,28 @@ function reducer(state: AppState, action: Action): AppState {
             return { ...state, kpiTargets: { ...state.kpiTargets, ...action.payload } };
         case 'TOGGLE_THEME':
             return { ...state, settings: { ...state.settings, theme: state.settings.theme === 'light' ? 'dark' : 'light' } };
+
+        // Account Reducers
+        case 'ADD_ACCOUNT':
+            return { ...state, settings: { ...state.settings, accounts: [...state.settings.accounts, action.payload] } };
+        case 'UPDATE_ACCOUNT':
+            return {
+                ...state,
+                settings: {
+                    ...state.settings,
+                    accounts: state.settings.accounts.map(a => a.id === action.payload.id ? { ...a, ...action.payload.updates } : a)
+                }
+            };
+        case 'DELETE_ACCOUNT':
+            // Prevent deleting if it's the last one? Or just allow it.
+            return {
+                ...state,
+                settings: {
+                    ...state.settings,
+                    accounts: state.settings.accounts.filter(a => a.id !== action.payload)
+                }
+            };
+
         default:
             return state;
     }
@@ -131,7 +171,9 @@ export function DMLabProvider({ children }: { children: ReactNode }) {
             if (local) {
                 try {
                     const parsed = JSON.parse(local);
-                    dispatch({ type: 'SET_STATE', payload: { ...initialState, ...parsed } });
+                    // Migration is handled, but simplified for context here - the reducer SET_STATE does a check for accounts
+                    const migrated = migrateData(parsed);
+                    dispatch({ type: 'SET_STATE', payload: { ...initialState, ...migrated } });
                 } catch (e) {
                     console.error("Failed to parse local storage", e);
                 }
@@ -147,7 +189,8 @@ export function DMLabProvider({ children }: { children: ReactNode }) {
                         .single();
 
                     if (data?.data) {
-                        dispatch({ type: 'SET_STATE', payload: { ...initialState, ...data.data } });
+                        const migrated = migrateData(data.data);
+                        dispatch({ type: 'SET_STATE', payload: { ...initialState, ...migrated } });
                         console.log("Loaded data from Supabase Cloud");
                         setLoading(false);
                         return; // Exit if cloud load successful
@@ -163,7 +206,8 @@ export function DMLabProvider({ children }: { children: ReactNode }) {
                 if (res.ok) {
                     const data = await res.json();
                     if (data && (data.experiments || data.dailyLogs)) {
-                        dispatch({ type: 'SET_STATE', payload: { ...initialState, ...data } });
+                        const migrated = migrateData(data);
+                        dispatch({ type: 'SET_STATE', payload: { ...initialState, ...migrated } });
                         console.log("Loaded data from local backend");
                     }
                 }
@@ -202,9 +246,13 @@ export function DMLabProvider({ children }: { children: ReactNode }) {
         updateOffer: (id: string, updates: Partial<Offer>) => dispatch({ type: 'UPDATE_OFFER', payload: { id, updates } }),
         deleteOffer: (id: string) => dispatch({ type: 'DELETE_OFFER', payload: id }),
 
-        updateGoals: (goals: Partial<{ weeklySent: number; weeklyBooked: number }>) => dispatch({ type: 'UPDATE_GOALS', payload: goals }),
+        updateGoals: (goals: Partial<AppState['goals']>) => dispatch({ type: 'UPDATE_GOALS', payload: goals }),
         updateKpiTargets: (targets: Partial<KpiTargets>) => dispatch({ type: 'UPDATE_KPI_TARGETS', payload: targets }),
         toggleTheme: () => dispatch({ type: 'TOGGLE_THEME' }),
+
+        addAccount: (name: string) => dispatch({ type: 'ADD_ACCOUNT', payload: { id: uuidv4(), name } }),
+        updateAccount: (id: string, updates: Partial<Account>) => dispatch({ type: 'UPDATE_ACCOUNT', payload: { id, updates } }),
+        deleteAccount: (id: string) => dispatch({ type: 'DELETE_ACCOUNT', payload: id }),
 
         saveData: async () => {
             // 1. Sync to Supabase if Configured
