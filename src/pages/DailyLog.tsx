@@ -11,11 +11,8 @@ export default function DailyLogPage() {
     const [editingId, setEditingId] = useState<string | null>(null);
 
     // Get accounts safely
-    const accountList = useMemo(() => {
-        const raw = settings.accounts || [];
-        return raw.map((a: any) => typeof a === 'string' ? a : a.name);
-    }, [settings.accounts]);
-    const defaultAccount = accountList[0] || 'Account 1';
+    const accountList = useMemo(() => settings.accounts || [], [settings.accounts]);
+    const defaultAccountId = accountList[0]?.id || 'account_1';
 
     // Form State
     const initialForm: Omit<DailyLog, 'id'> = {
@@ -23,10 +20,10 @@ export default function DailyLogPage() {
         experimentId: '',
         variantId: '',
 
-        campaign: '',
+        campaignTag: '',
         channel: 'linkedin',
-        accountId: defaultAccount,
-        isOldLane: false,
+        accountId: defaultAccountId,
+        isOldLeadsLane: false,
 
         connectionRequestsSent: 0,
         connectionsAccepted: 0,
@@ -35,7 +32,7 @@ export default function DailyLogPage() {
         permissionPositives: 0,
         offerMessagesSent: 0,
         offerSeen: 0,
-        offerPositives: 0,
+        offerOrBookingIntentPositives: 0,
         bookedCalls: 0,
         attendedCalls: 0,
         closedDeals: 0,
@@ -108,11 +105,11 @@ export default function DailyLogPage() {
                             <span className="text-sm font-medium">Account</span>
                             <select
                                 className="input"
-                                value={form.accountId || defaultAccount}
+                                value={form.accountId || defaultAccountId}
                                 onChange={e => setForm({ ...form, accountId: e.target.value })}
                             >
                                 {accountList.map(acc => (
-                                    <option key={acc} value={acc}>{acc}</option>
+                                    <option key={acc.id} value={acc.id}>{acc.name}</option>
                                 ))}
                             </select>
                         </label>
@@ -152,16 +149,16 @@ export default function DailyLogPage() {
                             <input
                                 type="checkbox"
                                 className="w-4 h-4 rounded border-gray-600 bg-transparent text-primary focus:ring-primary"
-                                checked={form.isOldLane}
-                                onChange={e => setForm({ ...form, isOldLane: e.target.checked })}
+                                checked={form.isOldLeadsLane}
+                                onChange={e => setForm({ ...form, isOldLeadsLane: e.target.checked })}
                             />
-                            <span className="text-sm font-medium text-muted-foreground">Is Old Leads Lane? (Exclude from KPI)</span>
+                            <span className="text-sm font-medium text-muted-foreground">Old Leads Lane (excluded from KPIs)</span>
                         </label>
                     </div>
 
                     {/* Numeric Inputs Grid */}
                     <div className="p-4 bg-[var(--bg-app)] rounded-xl border border-border">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-4 text-center">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-12 gap-4 text-center">
 
                             {/* Connection Stage */}
                             <NumberInput label="Conn. Sent" value={form.connectionRequestsSent} onChange={v => setForm({ ...form, connectionRequestsSent: v })} />
@@ -177,17 +174,32 @@ export default function DailyLogPage() {
                             <div className="hidden lg:block w-px bg-border mx-auto h-full"></div>
 
                             {/* Offer / Booking Stage */}
-                            <NumberInput label="Offer/Intent" value={form.offerPositives} onChange={v => setForm({ ...form, offerPositives: v })} highlight />
+                            <NumberInput label="Offer Sent" value={form.offerMessagesSent} onChange={v => setForm({ ...form, offerMessagesSent: v })} subLabel="(Optional)" />
+                            <NumberInput label="Offer Seen" value={form.offerSeen} onChange={v => setForm({ ...form, offerSeen: v })} subLabel="(Optional)" />
+                            <NumberInput label="Offer/Intent (+)" value={form.offerOrBookingIntentPositives} onChange={v => setForm({ ...form, offerOrBookingIntentPositives: v })} highlight />
                             <NumberInput label="Booked Call" value={form.bookedCalls} onChange={v => setForm({ ...form, bookedCalls: v })} highlight color="emerald" />
+                            <NumberInput label="Attended" value={form.attendedCalls} onChange={v => setForm({ ...form, attendedCalls: v })} subLabel="(Optional)" />
+                            <NumberInput label="Closed" value={form.closedDeals} onChange={v => setForm({ ...form, closedDeals: v })} subLabel="(Optional)" />
                         </div>
                     </div>
 
                     <label className="flex flex-col gap-1">
-                        <span className="text-sm font-medium">Notes / Campaign Tag</span>
+                        <span className="text-sm font-medium">Campaign Tag</span>
                         <input
                             type="text"
                             className="input"
                             placeholder="e.g. CEOs Jan Campaign"
+                            value={form.campaignTag}
+                            onChange={e => setForm({ ...form, campaignTag: e.target.value })}
+                        />
+                    </label>
+
+                    <label className="flex flex-col gap-1">
+                        <span className="text-sm font-medium">Notes</span>
+                        <input
+                            type="text"
+                            className="input"
+                            placeholder="Quick context or reminders..."
                             value={form.notes}
                             onChange={e => setForm({ ...form, notes: e.target.value })}
                         />
@@ -203,11 +215,13 @@ export default function DailyLogPage() {
                         <KpiReadout label="CR" value={currentKpis.cr} status={currentKpis.crStatus} />
                         <KpiReadout label="PRR" value={currentKpis.prr} status={currentKpis.prrStatus} />
                         <KpiReadout label="ABR" value={currentKpis.abr} status={currentKpis.abrStatus} />
-                        <KpiReadout label="BC" value={currentKpis.bookedRate} status={currentKpis.bookedStatus} />
+                        <KpiReadout label="Booked KPI" value={currentKpis.bookedKpi} status={currentKpis.bookedStatus} />
+                        <KpiReadout label="Pos->ABR" value={currentKpis.posToAbr} status={currentKpis.posToAbrStatus} />
+                        <KpiReadout label="ABR->Booked" value={currentKpis.abrToBooked} status={currentKpis.abrToBookedStatus} />
 
                         <div className="w-px h-4 bg-border hidden sm:block"></div>
 
-                        {form.isOldLane && (
+                        {form.isOldLeadsLane && (
                             <span className="text-xs font-bold text-amber-500 uppercase tracking-widest ml-auto">
                                 Old Lane Excluded
                             </span>
@@ -243,7 +257,7 @@ export default function DailyLogPage() {
                                 <th className="p-3 text-center">Req / Acc</th>
                                 <th className="p-3 text-center">Perm Sent</th>
                                 <th className="p-3 text-center">Perm Pos</th>
-                                <th className="p-3 text-center">Offer Pos</th>
+                                <th className="p-3 text-center">Offer/Intent</th>
                                 <th className="p-3 text-center">Booked</th>
                                 <th className="p-3 text-right">Actions</th>
                             </tr>
@@ -252,14 +266,15 @@ export default function DailyLogPage() {
                             {[...dailyLogs].sort((a, b) => b.date.localeCompare(a.date)).map(log => {
                                 const exp = experiments.find(e => e.id === log.experimentId);
                                 const variant = exp?.variants.find(v => v.id === log.variantId);
+                                const accountName = accountList.find(acc => acc.id === (log.accountId || defaultAccountId))?.name || defaultAccountId;
                                 return (
-                                    <tr key={log.id} className={clsx("border-b border-[var(--border)] hover:bg-secondary/5 transition-colors", log.isOldLane && "opacity-60 bg-secondary/5")}>
+                                    <tr key={log.id} className={clsx("border-b border-[var(--border)] hover:bg-secondary/5 transition-colors", log.isOldLeadsLane && "opacity-60 bg-secondary/5")}>
                                         <td className="p-3 font-mono opacity-70 whitespace-nowrap">{log.date}</td>
                                         <td className="p-3">
-                                            <div className="font-medium text-foreground">{log.campaign || log.channel}</div>
+                                            <div className="font-medium text-foreground">{log.campaignTag || log.channel}</div>
                                             <div className="text-[10px] text-muted-foreground flex gap-2">
-                                                <span>{log.accountId || defaultAccount}</span>
-                                                {log.isOldLane && <span className="text-amber-500 font-bold uppercase">[Old Lane]</span>}
+                                                <span>{accountName}</span>
+                                                {log.isOldLeadsLane && <span className="text-amber-500 font-bold uppercase">[Old Lane]</span>}
                                             </div>
                                             {exp && (
                                                 <div className="text-[10px] text-muted-foreground uppercase tracking-widest mt-0.5">
@@ -272,7 +287,7 @@ export default function DailyLogPage() {
                                         </td>
                                         <td className="p-3 text-center font-mono">{log.permissionMessagesSent}</td>
                                         <td className="p-3 text-center font-mono text-primary font-bold">{log.permissionPositives}</td>
-                                        <td className="p-3 text-center font-mono">{log.offerPositives}</td>
+                                        <td className="p-3 text-center font-mono">{log.offerOrBookingIntentPositives}</td>
                                         <td className="p-3 text-center font-bold text-emerald-500 font-mono text-base">{log.bookedCalls}</td>
                                         <td className="p-3 text-right whitespace-nowrap">
                                             <button onClick={() => handleEdit(log)} className="p-1 hover:text-primary transition-colors"><Edit2 size={16} /></button>
@@ -312,7 +327,6 @@ function NumberInput({ label, value, onChange, highlight, color, subLabel }: any
 }
 
 function KpiReadout({ label, value, status }: any) {
-    const isNeutral = status === 'neutral';
     const colorClass =
         status === 'green' ? 'text-emerald-500' :
             status === 'red' ? 'text-red-500' :
@@ -322,7 +336,7 @@ function KpiReadout({ label, value, status }: any) {
     return (
         <span className={clsx("font-mono flex items-center gap-1.5", colorClass)}>
             <span className="text-[10px] font-bold opacity-70 uppercase tracking-wilder text-foreground">{label}:</span>
-            {(value * 100).toFixed(1)}%
+            {value === null ? '--' : `${(value * 100).toFixed(1)}%`}
         </span>
     );
 }

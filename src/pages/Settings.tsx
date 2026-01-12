@@ -8,15 +8,18 @@ import clsx from 'clsx';
 export default function Settings() {
     const { state, actions } = useDMLab();
     const { kpiTargets, settings } = state;
-    const accounts = settings.accounts || CONSTANTS.ACCOUNTS;
+    const accounts = settings.accounts || CONSTANTS.DEFAULT_ACCOUNTS;
 
-    // Use string array or object array? types.ts says Account[].
-    // CONSTANTS.ACCOUNTS was updated to [{id...}].
-    // If we are migrating from old data, it might still be string[]?
-    // The Migration logic or Context reducer should ensure it's Account[].
-    // Let's coerce for safety in UI
+    // Coerce legacy string accounts to Account[] for safe rendering.
     const safeAccounts = Array.isArray(accounts)
-        ? (typeof accounts[0] === 'string' ? accounts.map((a: any) => ({ id: a, name: a, color: '#3b82f6' })) : accounts)
+        ? (typeof accounts[0] === 'string'
+            ? accounts.map((a: any, index: number) => ({
+                id: `account_${index + 1}`,
+                name: a,
+                color: '#3b82f6',
+                weeklyGoals: { ...CONSTANTS.DEFAULT_WEEKLY_GOALS }
+            }))
+            : accounts)
         : [];
 
     const [newAccountName, setNewAccountName] = useState('');
@@ -49,30 +52,54 @@ export default function Settings() {
 
                 <div className="flex flex-col gap-3 mb-6">
                     {safeAccounts.map((acc: any, idx: number) => (
-                        <div key={acc.id || idx} className="flex items-center gap-3 p-2 bg-secondary/10 rounded-lg group border border-transparent hover:border-border transition-all">
-                            <div
-                                className="w-4 h-4 rounded-full"
-                                style={{ backgroundColor: acc.color || '#3b82f6' }}
-                                title="Account Color"
-                            />
-                            <span className="font-mono text-sm flex-1">{acc.name}</span>
+                        <div key={acc.id || idx} className="p-3 bg-secondary/10 rounded-lg group border border-transparent hover:border-border transition-all">
+                            <div className="flex items-center gap-3">
+                                <div
+                                    className="w-4 h-4 rounded-full"
+                                    style={{ backgroundColor: acc.color || '#3b82f6' }}
+                                    title="Account Color"
+                                />
+                                <input
+                                    className="input h-8 text-sm font-mono flex-1"
+                                    value={acc.name}
+                                    onChange={(e) => actions.updateAccount(acc.id, { name: e.target.value })}
+                                />
 
-                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <label className="cursor-pointer p-1.5 hover:bg-secondary rounded text-muted-foreground hover:text-foreground">
-                                    <Palette size={14} />
-                                    <input
-                                        type="color"
-                                        className="sr-only"
-                                        value={acc.color || '#3b82f6'}
-                                        onChange={(e) => actions.updateAccount(acc.id, { color: e.target.value })}
-                                    />
-                                </label>
-                                <button
-                                    onClick={() => { if (confirm(`Delete account "${acc.name}"?`)) actions.deleteAccount(acc.id) }}
-                                    className="p-1.5 hover:bg-red-500/10 rounded text-muted-foreground hover:text-red-500"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
+                                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <label className="cursor-pointer p-1.5 hover:bg-secondary rounded text-muted-foreground hover:text-foreground">
+                                        <Palette size={14} />
+                                        <input
+                                            type="color"
+                                            className="sr-only"
+                                            value={acc.color || '#3b82f6'}
+                                            onChange={(e) => actions.updateAccount(acc.id, { color: e.target.value })}
+                                        />
+                                    </label>
+                                    <button
+                                        onClick={() => { if (confirm(`Delete account "${acc.name}"?`)) actions.deleteAccount(acc.id) }}
+                                        className="p-1.5 hover:bg-red-500/10 rounded text-muted-foreground hover:text-red-500"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+                                <GoalInput
+                                    label="Connection Requests / Week"
+                                    value={acc.weeklyGoals?.weeklyConnectionRequests ?? 0}
+                                    onChange={(value) => actions.updateAccount(acc.id, { weeklyGoals: { ...acc.weeklyGoals, weeklyConnectionRequests: value } })}
+                                />
+                                <GoalInput
+                                    label="Permission Messages / Week"
+                                    value={acc.weeklyGoals?.weeklyPermissionSent ?? 0}
+                                    onChange={(value) => actions.updateAccount(acc.id, { weeklyGoals: { ...acc.weeklyGoals, weeklyPermissionSent: value } })}
+                                />
+                                <GoalInput
+                                    label="Booked Calls / Week"
+                                    value={acc.weeklyGoals?.weeklyBooked ?? 0}
+                                    onChange={(value) => actions.updateAccount(acc.id, { weeklyGoals: { ...acc.weeklyGoals, weeklyBooked: value } })}
+                                />
                             </div>
                         </div>
                     ))}
@@ -103,21 +130,39 @@ export default function Settings() {
                     <div className="col-span-full">
                         <h4 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 border-b border-border pb-1">Primary Metrics</h4>
                         <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
-                            <ThresholdInput label="Connection Rate (CR)" valueKey="cr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Accepted / Requests Sent" />
-                            <ThresholdInput label="Positive Reply Rate (PRR)" valueKey="prr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Positive Replies / Permission Sent" />
-                            <ThresholdInput label="Appt Booking Rate (ABR)" valueKey="abr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Offer or Intent+ / Permission Sent" />
-                            <ThresholdInput label="Booked KPI" valueKey="booked" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Booked Calls / Permission Sent" />
+                            <ThresholdInput label="Connection Rate (CR)" valueKey="cr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Connections accepted / connection requests sent." />
+                            <ThresholdInput label="Positive Reply Rate (PRR)" valueKey="prr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Permission positives / permission messages sent." />
+                            <ThresholdInput label="Appointment Booking Rate (ABR)" valueKey="abr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Offer or booking intent positives / permission messages sent." />
+                            <ThresholdInput label="Booked KPI" valueKey="booked" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Booked calls / permission messages sent." />
                         </div>
                     </div>
 
                     <div className="col-span-full">
                         <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3 border-b border-border pb-1">Secondary / Diagnostic</h4>
                         <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
-                            <ThresholdInput label="Pos -> ABR Ratio" valueKey="posToAbr" targets={kpiTargets} onChange={handleKpiUpdate} />
-                            <ThresholdInput label="ABR -> Booked Ratio" valueKey="abrToBooked" targets={kpiTargets} onChange={handleKpiUpdate} />
+                            <ThresholdInput label="Positive -> ABR" valueKey="posToAbr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Offer or booking intent positives / permission positives." />
+                            <ThresholdInput label="ABR -> Booked" valueKey="abrToBooked" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Booked calls / offer or booking intent positives." />
+                            <ThresholdInput label="Seen Rate (Optional)" valueKey="seenRate" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Permission seen / permission messages sent." />
+                            <ThresholdInput label="Show-up Rate (SRR)" valueKey="srr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Attended calls / booked calls." />
+                            <ThresholdInput label="Sales Close Rate (SCR)" valueKey="scr" targets={kpiTargets} onChange={handleKpiUpdate} tooltip="Closed deals / attended calls." />
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <div className="card">
+                <h3 className="flex items-center gap-2 mb-4">
+                    <Target size={20} /> KPI Exclusions
+                </h3>
+                <label className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <input
+                        type="checkbox"
+                        className="w-4 h-4"
+                        checked={settings.excludeOldLeadsFromKpi ?? true}
+                        onChange={(e) => actions.updateSettings({ excludeOldLeadsFromKpi: e.target.checked })}
+                    />
+                    Exclude Old Leads Lane from KPI calculations (recommended)
+                </label>
             </div>
 
             <div className="card">
@@ -165,7 +210,7 @@ function ThresholdInput({ label, valueKey, targets, onChange, tooltip }: any) {
         <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{label}</span>
-                {tooltip && <span className="text-[10px] text-muted-foreground opacity-50 hidden sm:block">{tooltip}</span>}
+                {tooltip && <span className="text-[10px] text-muted-foreground opacity-50 hidden sm:block" title={tooltip}>{tooltip}</span>}
             </div>
             <div className="relative">
                 <input
@@ -178,5 +223,20 @@ function ThresholdInput({ label, valueKey, targets, onChange, tooltip }: any) {
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">%</span>
             </div>
         </div>
+    );
+}
+
+function GoalInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+    return (
+        <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase text-muted-foreground tracking-wider">{label}</span>
+            <input
+                type="number"
+                min="0"
+                className="input h-9 text-sm font-mono"
+                value={value}
+                onChange={(e) => onChange(Number(e.target.value))}
+            />
+        </label>
     );
 }

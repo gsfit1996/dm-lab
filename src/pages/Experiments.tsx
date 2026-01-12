@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useDMLab } from '../context/DMLabContext';
-import { Experiment, ExperimentType, ExperimentStage, PrimaryMetric, CONSTANTS } from '../types';
+import { Experiment, ExperimentStage, PrimaryMetric, CONSTANTS, VariantStep } from '../types';
 import { Play, Pause, Archive as ArchiveIcon, Trash2, Copy, Plus, Edit2, X, AlertTriangle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import clsx from 'clsx';
@@ -16,12 +16,12 @@ export default function Experiments() {
         hypothesis: '',
         status: 'planned',
         channel: 'linkedin',
-        experimentType: 'PERMISSION_MESSAGE', // Primary selector
-        stage: 'PERMISSION', // Auto-derived
-        primaryMetric: 'PRR', // Auto-derived
+        funnelStageTargeted: 'PERMISSION',
+        primaryMetric: 'PRR',
+        requiredSampleSizeSeen: CONSTANTS.VALIDITY_THRESHOLDS.PERMISSION_SEEN,
         variants: [
-            { id: uuidv4(), label: 'A', message: '' },
-            { id: uuidv4(), label: 'B', message: '' }
+            { id: uuidv4(), label: 'A', message: '', step: 'permission' },
+            { id: uuidv4(), label: 'B', message: '', step: 'permission' }
         ],
         startedAt: ''
     };
@@ -33,7 +33,7 @@ export default function Experiments() {
         const nextLabel = labels[form.variants.length % labels.length];
         setForm({
             ...form,
-            variants: [...form.variants, { id: uuidv4(), label: nextLabel, message: '' }]
+            variants: [...form.variants, { id: uuidv4(), label: nextLabel, message: '', step: form.variants[0]?.step || 'permission' }]
         });
     };
 
@@ -45,74 +45,66 @@ export default function Experiments() {
         });
     };
 
-    const updateVariant = (id: string, message: string) => {
+    const updateVariant = (id: string, updates: Partial<{ message: string; step: VariantStep | string }>) => {
         setForm({
             ...form,
-            variants: form.variants.map(v => v.id === id ? { ...v, message } : v)
+            variants: form.variants.map(v => v.id === id ? { ...v, ...updates } : v)
         });
     };
 
-    // Auto-update stage and primary metric when experiment type changes
-    const handleExperimentTypeChange = (experimentType: ExperimentType) => {
-        let stage: ExperimentStage = 'PERMISSION';
+    const handleStageChange = (stage: ExperimentStage) => {
         let metric: PrimaryMetric = 'PRR';
+        if (stage === 'CONNECTION') metric = 'CR';
+        if (stage === 'OFFER') metric = 'ABR';
+        if (stage === 'BOOKING') metric = 'BOOKED_KPI';
 
-        switch (experimentType) {
-            case 'PERMISSION_MESSAGE':
-                stage = 'PERMISSION';
-                metric = 'PRR';
-                break;
-            case 'OFFER_MESSAGE':
-                stage = 'OFFER';
-                metric = 'ABR';
-                break;
-            case 'OLD_LEADS_REOFFER':
-                stage = 'OFFER'; // Old leads re-offers target the offer stage
-                metric = 'BOOKED_KPI'; // Primary metric for old leads is Booked KPI
-                break;
-        }
-        setForm({ ...form, experimentType, stage, primaryMetric: metric });
+        const requiredSampleSizeSeen =
+            stage === 'PERMISSION'
+                ? CONSTANTS.VALIDITY_THRESHOLDS.PERMISSION_SEEN
+                : stage === 'OFFER'
+                    ? CONSTANTS.VALIDITY_THRESHOLDS.OFFER_SEEN
+                    : 0;
+
+        setForm({ ...form, funnelStageTargeted: stage, primaryMetric: metric, requiredSampleSizeSeen });
     };
 
-    // Helper to get metrics for an experiment
     const getMetrics = (expId: string) => {
         const logs = dailyLogs.filter(l => l.experimentId === expId);
         const exp = experiments.find(e => e.id === expId);
         if (!exp) return { variants: [], totalLogs: 0 };
 
-        const threshold = exp.stage === 'OFFER' ? CONSTANTS.VALIDITY_THRESHOLDS.OFFER_SEEN : CONSTANTS.VALIDITY_THRESHOLDS.PERMISSION_SEEN;
+        const threshold = exp.requiredSampleSizeSeen ?? (exp.funnelStageTargeted === 'OFFER'
+            ? CONSTANTS.VALIDITY_THRESHOLDS.OFFER_SEEN
+            : exp.funnelStageTargeted === 'PERMISSION'
+                ? CONSTANTS.VALIDITY_THRESHOLDS.PERMISSION_SEEN
+                : 0);
 
         const variantStats = exp.variants.map(v => {
             const vLogs = logs.filter(l => l.variantId === v.id);
-
-            // Calculate base metrics (simplified aggregate for this view)
-            const sent = vLogs.reduce((s, l) => s + (l.permissionMessagesSent || 0), 0); // Denom for PRR/ABR
-            const seen = vLogs.reduce((s, l) => s + (l.permissionSeen || l.offerSeen || 0), 0); // Validity denom
+            const sent = vLogs.reduce((s, l) => s + (l.permissionMessagesSent || 0), 0);
+            const seen = vLogs.reduce((s, l) => s + ((exp.funnelStageTargeted === 'OFFER' ? l.offerSeen : l.permissionSeen) || 0), 0);
             const positives = vLogs.reduce((s, l) => s + l.permissionPositives, 0);
-            const offers = vLogs.reduce((s, l) => s + l.offerPositives, 0);
+            const offers = vLogs.reduce((s, l) => s + l.offerOrBookingIntentPositives, 0);
             const booked = vLogs.reduce((s, l) => s + l.bookedCalls, 0);
+            const requests = vLogs.reduce((s, l) => s + l.connectionRequestsSent, 0);
+            const accepted = vLogs.reduce((s, l) => s + l.connectionsAccepted, 0);
 
-            // Determine rate based on Primary Metric
+            const denom = exp.primaryMetric === 'CR' ? requests : sent;
             let rate = 0;
-            const denom = exp.primaryMetric === 'CR' ? vLogs.reduce((s, l) => s + l.connectionRequestsSent, 0)
-                : (exp.primaryMetric === 'PRR' || exp.primaryMetric === 'ABR' || exp.primaryMetric === 'BOOKED_KPI') ? sent
-                    : 1;
-
             if (denom > 0) {
-                if (exp.primaryMetric === 'CR') rate = vLogs.reduce((s, l) => s + l.connectionsAccepted, 0) / denom;
-                else if (exp.primaryMetric === 'PRR') rate = positives / denom;
-                else if (exp.primaryMetric === 'ABR') rate = offers / denom;
-                else if (exp.primaryMetric === 'BOOKED_KPI') rate = booked / denom;
-
-                // Fallback logic if denominator is 0 but we want to show something? No, secure check.
+                if (exp.primaryMetric === 'CR') rate = accepted / denom;
+                if (exp.primaryMetric === 'PRR') rate = positives / denom;
+                if (exp.primaryMetric === 'ABR') rate = offers / denom;
+                if (exp.primaryMetric === 'BOOKED_KPI') rate = booked / denom;
             }
 
-            // Validity Check
-            // "Permission tests require >= 60 SEEN", "Offer tests require >= 30 SEEN"
-            // We use 'seen' field which aggregates permissionSeen or offerSeen.
-            const isValid = seen >= threshold;
+            const prr = sent > 0 ? positives / sent : 0;
+            const abr = sent > 0 ? offers / sent : 0;
+            const bookedKpi = sent > 0 ? booked / sent : 0;
 
-            return { ...v, sent, seen, rate, isValid, positives, offers, booked };
+            const isValid = threshold === 0 ? true : seen >= threshold;
+
+            return { ...v, sent, seen, rate, isValid, positives, offers, booked, requests, accepted, prr, abr, bookedKpi };
         });
 
         return { variants: variantStats, totalLogs: logs.length };
@@ -137,7 +129,15 @@ export default function Experiments() {
     const startEdit = (exp: Experiment) => {
         setEditingId(exp.id);
         const { id, createdAt, ...rest } = exp;
-        setForm(rest);
+        setForm({
+            ...initialForm,
+            ...rest,
+            requiredSampleSizeSeen: rest.requiredSampleSizeSeen ?? (rest.funnelStageTargeted === 'OFFER'
+                ? CONSTANTS.VALIDITY_THRESHOLDS.OFFER_SEEN
+                : rest.funnelStageTargeted === 'PERMISSION'
+                    ? CONSTANTS.VALIDITY_THRESHOLDS.PERMISSION_SEEN
+                    : 0)
+        });
         setShowForm(true);
     };
 
@@ -158,7 +158,6 @@ export default function Experiments() {
 
     return (
         <div className="flex flex-col gap-6">
-
             {!showForm && (
                 <button onClick={() => setShowForm(true)} className="btn w-fit">
                     <Plus size={18} /> New Multivariate Experiment
@@ -176,20 +175,19 @@ export default function Experiments() {
                             </label>
 
                             <label className="flex flex-col gap-1">
-                                <span className="text-sm">Experiment Type</span>
+                                <span className="text-sm">Stage Targeted</span>
                                 <select
                                     className="input"
-                                    value={form.experimentType}
-                                    onChange={e => handleExperimentTypeChange(e.target.value as ExperimentType)}
+                                    value={form.funnelStageTargeted}
+                                    onChange={e => handleStageChange(e.target.value as ExperimentStage)}
                                 >
-                                    <option value="PERMISSION_MESSAGE">Permission Message</option>
-                                    <option value="OFFER_MESSAGE">Offer Message</option>
-                                    <option value="OLD_LEADS_REOFFER">Old Leads Re-offer</option>
+                                    <option value="CONNECTION">Connection</option>
+                                    <option value="PERMISSION">Permission</option>
+                                    <option value="OFFER">Offer</option>
+                                    <option value="BOOKING">Booking</option>
                                 </select>
                                 <span className="text-xs text-muted-foreground">
-                                    {form.experimentType === 'PERMISSION_MESSAGE' && '≥ 60 SEEN required for validity'}
-                                    {form.experimentType === 'OFFER_MESSAGE' && '≥ 30 SEEN required for validity'}
-                                    {form.experimentType === 'OLD_LEADS_REOFFER' && '≥ 30 SEEN required for validity'}
+                                    {form.requiredSampleSizeSeen > 0 ? `>= ${form.requiredSampleSizeSeen} SEEN required for validity` : 'No seen threshold required'}
                                 </span>
                             </label>
                         </div>
@@ -198,6 +196,22 @@ export default function Experiments() {
                             <span className="text-sm">Hypothesis</span>
                             <input className="input" value={form.hypothesis} onChange={e => setForm({ ...form, hypothesis: e.target.value })} placeholder="Shorter opener increases reply rate" />
                         </label>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <label className="flex flex-col gap-1">
+                                <span className="text-sm">Primary Metric</span>
+                                <select
+                                    className="input"
+                                    value={form.primaryMetric}
+                                    onChange={e => setForm({ ...form, primaryMetric: e.target.value as PrimaryMetric })}
+                                >
+                                    <option value="CR">CR (Connection Rate)</option>
+                                    <option value="PRR">PRR (Positive Reply Rate)</option>
+                                    <option value="ABR">ABR (Appointment Booking Rate)</option>
+                                    <option value="BOOKED_KPI">Booked KPI</option>
+                                </select>
+                            </label>
+                        </div>
 
                         <div className="space-y-4">
                             <div className="flex items-center justify-between border-b border-border pb-2">
@@ -220,9 +234,23 @@ export default function Experiments() {
                                         <textarea
                                             className="input h-24 text-sm font-mono"
                                             value={v.message}
-                                            onChange={e => updateVariant(v.id, e.target.value)}
+                                            onChange={e => updateVariant(v.id, { message: e.target.value })}
                                             placeholder={`Paste variant ${v.label} copy here...`}
                                         />
+                                        <label className="flex items-center gap-2 text-[10px] text-muted-foreground mt-2">
+                                            <span className="uppercase tracking-wider">Step</span>
+                                            <select
+                                                className="input h-7 text-xs"
+                                                value={v.step || ''}
+                                                onChange={(e) => updateVariant(v.id, { step: e.target.value })}
+                                            >
+                                                <option value="">Optional</option>
+                                                <option value="permission">Permission</option>
+                                                <option value="offer">Offer</option>
+                                                <option value="booking_cta">Booking CTA</option>
+                                                <option value="follow_up">Follow-up</option>
+                                            </select>
+                                        </label>
                                     </div>
                                 ))}
                             </div>
@@ -250,7 +278,6 @@ export default function Experiments() {
             <div className="grid grid-cols-1 gap-4">
                 {activeExperiments.map(exp => {
                     const { variants: vStats, totalLogs } = getMetrics(exp.id);
-                    // Only declare winner if valid
                     const validVariants = vStats.filter(v => v.isValid);
                     const winner = validVariants.length > 0
                         ? validVariants.reduce((prev, current) => (prev.rate > current.rate) ? prev : current, validVariants[0])
@@ -262,7 +289,7 @@ export default function Experiments() {
                                 <div>
                                     <div className="flex items-center gap-3 mb-1">
                                         <h3 className="text-lg">{exp.name}</h3>
-                                        <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-secondary text-muted-foreground uppercase">{exp.stage} Stage</span>
+                                        <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-secondary text-muted-foreground uppercase">{exp.funnelStageTargeted} Stage</span>
                                     </div>
                                     <div className="flex items-center gap-2 mb-2">
                                         <StatusBadge status={exp.status} />
@@ -297,13 +324,25 @@ export default function Experiments() {
                                             <span className="text-xs font-bold text-muted-foreground">{exp.primaryMetric}</span>
                                         </div>
 
-                                        <div className="text-xs text-muted-foreground mb-3 flex gap-3">
-                                            <span>{v.positives} Positives</span>
+                                        <div className="text-xs text-muted-foreground mb-3 flex gap-3 flex-wrap">
+                                            {exp.funnelStageTargeted === 'PERMISSION' && (
+                                                <>
+                                                    <span>PRR {(v.prr * 100).toFixed(1)}%</span>
+                                                    <span>ABR {(v.abr * 100).toFixed(1)}%</span>
+                                                    <span>Booked {(v.bookedKpi * 100).toFixed(1)}%</span>
+                                                </>
+                                            )}
+                                            {exp.funnelStageTargeted === 'OFFER' && (
+                                                <>
+                                                    <span>ABR {(v.abr * 100).toFixed(1)}%</span>
+                                                    <span>Booked {(v.bookedKpi * 100).toFixed(1)}%</span>
+                                                </>
+                                            )}
                                             <span>{v.seen} Seen</span>
                                         </div>
 
                                         <div className={clsx("flex items-center gap-1.5 text-[10px] font-bold uppercase p-1.5 rounded", v.isValid ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500")}>
-                                            {v.isValid ? <span className="flex items-center gap-1">✓ Valid Sample</span> : <span className="flex items-center gap-1"><AlertTriangle size={10} /> Insufficient Data ({Math.max(0, (exp.stage === 'OFFER' ? 30 : 60) - v.seen)} left)</span>}
+                                            {v.isValid ? <span className="flex items-center gap-1">Valid</span> : <span className="flex items-center gap-1"><AlertTriangle size={10} /> Insufficient sample</span>}
                                         </div>
                                     </div>
                                 ))}

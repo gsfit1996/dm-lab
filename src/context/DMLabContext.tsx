@@ -7,19 +7,17 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 // Initial Empty State
 const initialState: AppState = {
+    schemaVersion: CONSTANTS.SCHEMA_VERSION,
     experiments: [],
     dailyLogs: [],
     leads: [],
     offers: [],
-    goals: {
-        weeklyConnectionRequests: 100,
-        weeklyPermissionSent: 100,
-        weeklyBooked: 5
-    },
+    goals: CONSTANTS.DEFAULT_WEEKLY_GOALS,
     kpiTargets: CONSTANTS.DEFAULT_KPI_TARGETS,
     settings: {
         theme: 'dark',
-        accounts: CONSTANTS.ACCOUNTS
+        accounts: CONSTANTS.DEFAULT_ACCOUNTS,
+        excludeOldLeadsFromKpi: true
     },
 };
 
@@ -39,8 +37,8 @@ interface DMLabContextType {
         addOffer: (offer: Omit<Offer, 'id'>) => void;
         updateOffer: (id: string, updates: Partial<Offer>) => void;
         deleteOffer: (id: string) => void;
-        updateGoals: (goals: Partial<AppState['goals']>) => void;
         updateKpiTargets: (targets: Partial<KpiTargets>) => void;
+        updateSettings: (settings: Partial<AppState['settings']>) => void;
 
         // Account Actions
         addAccount: (name: string) => void;
@@ -68,22 +66,44 @@ type Action =
     | { type: 'ADD_OFFER'; payload: Offer }
     | { type: 'UPDATE_OFFER'; payload: { id: string; updates: Partial<Offer> } }
     | { type: 'DELETE_OFFER'; payload: string }
-    | { type: 'UPDATE_GOALS'; payload: Partial<AppState['goals']> }
     | { type: 'UPDATE_KPI_TARGETS'; payload: Partial<KpiTargets> }
+    | { type: 'UPDATE_SETTINGS'; payload: Partial<AppState['settings']> }
     | { type: 'TOGGLE_THEME' }
     | { type: 'ADD_ACCOUNT'; payload: Account }
     | { type: 'UPDATE_ACCOUNT'; payload: { id: string; updates: Partial<Account> } }
     | { type: 'DELETE_ACCOUNT'; payload: string };
 
+const coerceAccounts = (accounts: any): Account[] => {
+    if (Array.isArray(accounts) && accounts.length > 0) {
+        if (typeof accounts[0] === 'string') {
+            return accounts.map((name: string, index: number) => ({
+                id: `account_${index + 1}`,
+                name,
+                weeklyGoals: { ...CONSTANTS.DEFAULT_WEEKLY_GOALS },
+                color: index % 2 === 0 ? '#3b82f6' : '#22c55e'
+            }));
+        }
+        return accounts.map((acc: any, index: number) => ({
+            id: acc.id || `account_${index + 1}`,
+            name: acc.name || `Account ${index + 1}`,
+            weeklyGoals: acc.weeklyGoals || { ...CONSTANTS.DEFAULT_WEEKLY_GOALS },
+            color: acc.color || (index % 2 === 0 ? '#3b82f6' : '#22c55e')
+        }));
+    }
+    return CONSTANTS.DEFAULT_ACCOUNTS;
+};
+
 function reducer(state: AppState, action: Action): AppState {
     switch (action.type) {
         case 'SET_STATE':
-            // Ensure accounts exist if loading old data
-            const settingsWithAccounts = {
-                ...action.payload.settings,
-                accounts: (action.payload.settings.accounts && action.payload.settings.accounts.length > 0 && typeof action.payload.settings.accounts[0] === 'object') ? action.payload.settings.accounts : CONSTANTS.ACCOUNTS
+            return {
+                ...action.payload,
+                settings: {
+                    ...action.payload.settings,
+                    accounts: coerceAccounts(action.payload.settings?.accounts),
+                    excludeOldLeadsFromKpi: action.payload.settings?.excludeOldLeadsFromKpi ?? true
+                }
             };
-            return { ...action.payload, settings: settingsWithAccounts as any };
         case 'ADD_EXPERIMENT':
             return { ...state, experiments: [...state.experiments, action.payload] };
         case 'UPDATE_EXPERIMENT':
@@ -124,10 +144,10 @@ function reducer(state: AppState, action: Action): AppState {
             };
         case 'DELETE_OFFER':
             return { ...state, offers: state.offers.filter(o => o.id !== action.payload) };
-        case 'UPDATE_GOALS':
-            return { ...state, goals: { ...state.goals, ...action.payload } };
         case 'UPDATE_KPI_TARGETS':
             return { ...state, kpiTargets: { ...state.kpiTargets, ...action.payload } };
+        case 'UPDATE_SETTINGS':
+            return { ...state, settings: { ...state.settings, ...action.payload } };
         case 'TOGGLE_THEME':
             return { ...state, settings: { ...state.settings, theme: state.settings.theme === 'light' ? 'dark' : 'light' } };
 
@@ -246,11 +266,19 @@ export function DMLabProvider({ children }: { children: ReactNode }) {
         updateOffer: (id: string, updates: Partial<Offer>) => dispatch({ type: 'UPDATE_OFFER', payload: { id, updates } }),
         deleteOffer: (id: string) => dispatch({ type: 'DELETE_OFFER', payload: id }),
 
-        updateGoals: (goals: Partial<AppState['goals']>) => dispatch({ type: 'UPDATE_GOALS', payload: goals }),
         updateKpiTargets: (targets: Partial<KpiTargets>) => dispatch({ type: 'UPDATE_KPI_TARGETS', payload: targets }),
+        updateSettings: (settings: Partial<AppState['settings']>) => dispatch({ type: 'UPDATE_SETTINGS', payload: settings }),
         toggleTheme: () => dispatch({ type: 'TOGGLE_THEME' }),
 
-        addAccount: (name: string) => dispatch({ type: 'ADD_ACCOUNT', payload: { id: uuidv4(), name } }),
+        addAccount: (name: string) => dispatch({
+            type: 'ADD_ACCOUNT',
+            payload: {
+                id: uuidv4(),
+                name,
+                weeklyGoals: { ...CONSTANTS.DEFAULT_WEEKLY_GOALS },
+                color: '#3b82f6'
+            }
+        }),
         updateAccount: (id: string, updates: Partial<Account>) => dispatch({ type: 'UPDATE_ACCOUNT', payload: { id, updates } }),
         deleteAccount: (id: string) => dispatch({ type: 'DELETE_ACCOUNT', payload: id }),
 

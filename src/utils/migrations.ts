@@ -1,138 +1,192 @@
-import { AppState, DailyLog, Lead, LeadStage, LegacyLeadStage, Experiment, ExperimentType } from '../types';
+import {
+    AppState,
+    DailyLog,
+    Lead,
+    LeadStage,
+    LegacyLeadStage,
+    Experiment,
+    ExperimentStage,
+    PrimaryMetric,
+    Account,
+    WeeklyGoals,
+    CONSTANTS
+} from '../types';
+
+const normalizeGoals = (goals?: Partial<WeeklyGoals>): WeeklyGoals => ({
+    weeklyConnectionRequests: goals?.weeklyConnectionRequests ?? CONSTANTS.DEFAULT_WEEKLY_GOALS.weeklyConnectionRequests,
+    weeklyPermissionSent: goals?.weeklyPermissionSent ?? CONSTANTS.DEFAULT_WEEKLY_GOALS.weeklyPermissionSent,
+    weeklyBooked: goals?.weeklyBooked ?? CONSTANTS.DEFAULT_WEEKLY_GOALS.weeklyBooked
+});
+
+const coerceAccounts = (rawAccounts: any, fallbackGoals?: WeeklyGoals): Account[] => {
+    const goals = normalizeGoals(fallbackGoals);
+    if (Array.isArray(rawAccounts) && rawAccounts.length > 0) {
+        if (typeof rawAccounts[0] === 'string') {
+            return rawAccounts.map((name: string, index: number) => ({
+                id: `account_${index + 1}`,
+                name,
+                weeklyGoals: { ...goals },
+                color: index % 2 === 0 ? '#3b82f6' : '#22c55e'
+            }));
+        }
+        return rawAccounts.map((acc: any, index: number) => ({
+            id: acc.id || `account_${index + 1}`,
+            name: acc.name || `Account ${index + 1}`,
+            weeklyGoals: normalizeGoals(acc.weeklyGoals || acc.goals || goals),
+            color: acc.color || (index % 2 === 0 ? '#3b82f6' : '#22c55e')
+        }));
+    }
+    return CONSTANTS.DEFAULT_ACCOUNTS.map((acc) => ({
+        ...acc,
+        weeklyGoals: normalizeGoals(acc.weeklyGoals || goals)
+    }));
+};
+
+const deriveStageFromExperimentType = (experimentType?: string): ExperimentStage => {
+    switch (experimentType) {
+        case 'OFFER_MESSAGE':
+        case 'OLD_LEADS_REOFFER':
+            return 'OFFER';
+        case 'PERMISSION_MESSAGE':
+            return 'PERMISSION';
+        default:
+            return 'PERMISSION';
+    }
+};
+
+const primaryMetricForStage = (stage: ExperimentStage): PrimaryMetric => {
+    switch (stage) {
+        case 'CONNECTION':
+            return 'CR';
+        case 'PERMISSION':
+            return 'PRR';
+        case 'OFFER':
+            return 'ABR';
+        case 'BOOKING':
+            return 'BOOKED_KPI';
+        default:
+            return 'PRR';
+    }
+};
+
+const requiredSeenForStage = (stage: ExperimentStage): number => {
+    if (stage === 'PERMISSION') return CONSTANTS.VALIDITY_THRESHOLDS.PERMISSION_SEEN;
+    if (stage === 'OFFER') return CONSTANTS.VALIDITY_THRESHOLDS.OFFER_SEEN;
+    return 0;
+};
+
+const normalizeLeadStage = (stage: LeadStage | LegacyLeadStage | string): LeadStage => {
+    if (!stage) return 'REQUESTED';
+    if (
+        stage === 'REQUESTED' ||
+        stage === 'CONNECTED' ||
+        stage === 'PERMISSION_SENT' ||
+        stage === 'PERMISSION_POSITIVE' ||
+        stage === 'OFFER_POSITIVE' ||
+        stage === 'BOOKED' ||
+        stage === 'ATTENDED' ||
+        stage === 'CLOSED' ||
+        stage === 'LOST'
+    ) {
+        return stage as LeadStage;
+    }
+
+    switch (stage) {
+        case 'PERMISSION_POS':
+        case 'B':
+            return 'PERMISSION_POSITIVE';
+        case 'OFFER_POS':
+        case 'C':
+            return 'OFFER_POSITIVE';
+        case 'D':
+            return 'BOOKED';
+        case 'A':
+        case 'S':
+            return 'PERMISSION_SENT';
+        case 'ATTENDED':
+            return 'ATTENDED';
+        case 'CLOSED':
+            return 'CLOSED';
+        case 'X':
+            return 'LOST';
+        default:
+            return 'REQUESTED';
+    }
+};
+
+const normalizeLog = (log: any, defaultAccountName: string): DailyLog => {
+    const calendlyValue = log.calendly ?? log.calendlySent ?? 0;
+
+    return {
+        id: log.id,
+        date: log.date,
+        experimentId: log.experimentId || '',
+        variantId: log.variantId,
+        campaignTag: log.campaignTag || log.campaign || log.tag || '',
+        channel: log.channel || 'linkedin',
+        accountId: log.accountId || log.account_id || defaultAccountName,
+        isOldLeadsLane: log.isOldLeadsLane ?? log.isOldLane ?? false,
+        connectionRequestsSent: log.connectionRequestsSent ?? log.connection_requests_sent ?? 0,
+        connectionsAccepted: log.connectionsAccepted ?? log.accepted ?? 0,
+        permissionMessagesSent: log.permissionMessagesSent ?? log.sent ?? 0,
+        permissionSeen: log.permissionSeen ?? log.seen ?? 0,
+        permissionPositives: log.permissionPositives ?? log.positive ?? log.positiveReplies ?? 0,
+        offerMessagesSent: log.offerMessagesSent ?? 0,
+        offerSeen: log.offerSeen ?? 0,
+        offerOrBookingIntentPositives: log.offerOrBookingIntentPositives ?? log.offerPositives ?? (calendlyValue > 0 ? calendlyValue : 0),
+        bookedCalls: log.bookedCalls ?? log.booked ?? 0,
+        attendedCalls: log.attendedCalls ?? log.attended ?? 0,
+        closedDeals: log.closedDeals ?? log.closed ?? 0,
+        notes: log.notes || ''
+    };
+};
 
 export const migrateData = (oldData: any): AppState => {
-    console.log("Migrating data to v2 schema...");
+    const schemaVersion = oldData?.schemaVersion ?? 1;
 
-    // 1. Migrate Daily Logs
-    const migratedLogs: DailyLog[] = (oldData.dailyLogs || []).map((log: any) => {
-        // If it already has new fields, assume it's fine (or partial). 
-        // We check for signature field 'bookedCalls' to see if migration needed.
-        if (log.bookedCalls !== undefined) return log as DailyLog;
+    const legacyGoals = normalizeGoals(oldData?.goals);
+    const accounts = coerceAccounts(oldData?.settings?.accounts, legacyGoals);
+    const defaultAccountName = accounts[0]?.name || 'Account 1';
 
-        const isKnownLegacy = log.sent !== undefined; // Old structure had 'sent'
+    const migratedLogs: DailyLog[] = (oldData?.dailyLogs || []).map((log: any) => normalizeLog(log, defaultAccountName));
 
-        if (!isKnownLegacy) return log as DailyLog;
+    const migratedLeads: Lead[] = (oldData?.leads || []).map((lead: any) => ({
+        ...lead,
+        stage: normalizeLeadStage(lead.stage),
+        accountId: lead.accountId || defaultAccountName,
+        isOldLeadsLane: lead.isOldLeadsLane ?? lead.isOldLane ?? false
+    }));
 
+    const migratedExperiments: Experiment[] = (oldData?.experiments || []).map((exp: any) => {
+        const funnelStageTargeted = exp.funnelStageTargeted || exp.stage || deriveStageFromExperimentType(exp.experimentType);
+        const primaryMetric = exp.primaryMetric || primaryMetricForStage(funnelStageTargeted);
         return {
-            id: log.id,
-            date: log.date,
-            experimentId: log.experimentId,
-            variantId: log.variantId,
-            campaign: log.campaign || '',
-            channel: log.channel || 'linkedin',
-            accountId: 'Account 1', // Default to primary
-            isOldLane: false, // Default to main
-            notes: log.notes || '',
-
-            // Mapping rules
-            connectionRequestsSent: 0, // No data in old logs
-            connectionsAccepted: log.accepted || 0,
-
-            permissionMessagesSent: log.sent || 0, // 'sent' was usually permission sent
-            permissionSeen: log.seen || 0,
-            permissionPositives: log.positiveReplies || 0,
-
-            offerMessagesSent: 0,
-            offerSeen: 0,
-            // 'calendlySent' or 'positiveReplies' might have meant offer positive in some contexts, 
-            // but user said: "set offer_or_booking_intent_positives = calendly if calendly > 0 else 0"
-            offerPositives: (log.calendlySent && log.calendlySent > 0) ? log.calendlySent : 0,
-
-            bookedCalls: log.booked || 0,
-            attendedCalls: log.attended || 0,
-            closedDeals: log.closed || 0
+            ...exp,
+            funnelStageTargeted,
+            primaryMetric,
+            requiredSampleSizeSeen: exp.requiredSampleSizeSeen ?? requiredSeenForStage(funnelStageTargeted)
         };
     });
 
-    // 2. Migrate Leads - map legacy stages to simplified hot prospects
-    const migratedLeads: Lead[] = (oldData.leads || []).map((lead: any) => {
-        // Already migrated if has new simple stages
-        if (lead.stage === 'PERMISSION_POSITIVE' || lead.stage === 'OFFER_POSITIVE' || lead.stage === 'BOOKED' || lead.stage === 'LOST') {
-            return {
-                ...lead,
-                accountId: lead.accountId || 'Account 1',
-                isOldLane: lead.isOldLane || false
-            };
-        }
-
-        // Map old stages to hot prospects only
-        // Rule: Only track Permission Positive, Offer Positive, Booked, Lost
-        // Earlier stages (Requested, Connected, Permission Sent) should NOT be tracked as named leads
-        let newStage: LeadStage = 'PERMISSION_POSITIVE'; // Default for hot prospects
-
-        switch (lead.stage) {
-            // Legacy full funnel stages - map to hot prospects
-            case 'REQUESTED':
-            case 'CONNECTED':
-            case 'PERMISSION_SENT':
-                // These are NOT hot prospects - should not be in the simplified CRM
-                // Skip or map to Permission Positive if they exist
-                return null; // Filter these out
-            case 'PERMISSION_POS':
-                newStage = 'PERMISSION_POSITIVE';
-                break;
-            case 'OFFER_POS':
-                newStage = 'OFFER_POSITIVE';
-                break;
-            case 'BOOKED':
-                newStage = 'BOOKED';
-                break;
-            case 'ATTENDED':
-            case 'CLOSED':
-                // These converted successfully, keep as Booked
-                newStage = 'BOOKED';
-                break;
-            case 'LOST':
-            case 'X':
-                newStage = 'LOST';
-                break;
-            // Old A/S/B/C/D notation
-            case 'A': // Permission Sent - NOT a hot prospect
-            case 'S': // Seen - NOT a hot prospect
-                return null; // Filter out
-            case 'B': // Engaged - Permission Positive
-                newStage = 'PERMISSION_POSITIVE';
-                break;
-            case 'C': // Calendly - Offer Positive
-                newStage = 'OFFER_POSITIVE';
-                break;
-            case 'D': // Booked
-                newStage = 'BOOKED';
-                break;
-            default:
-                // Unknown stage - filter out
-                return null;
-        }
-
-        return {
-            ...lead,
-            stage: newStage,
-            accountId: lead.accountId || 'Account 1',
-            isOldLane: lead.isOldLane || false
-        };
-    }).filter((lead): lead is Lead => lead !== null); // Remove nulls
-
-    // 3. Migrate Settings/Targets
-    // Merge defaults onto existing targets if they are missing
     const mergedTargets = {
-        ...oldData.kpiTargets,
-        // Ensure new keys exist if they weren't there
-        cr: oldData.kpiTargets?.cr !== undefined ? oldData.kpiTargets.cr : 30,
-        prr: oldData.kpiTargets?.prr !== undefined ? oldData.kpiTargets.prr : 8,
-        abr: oldData.kpiTargets?.abr !== undefined ? oldData.kpiTargets.abr : 4,
-        booked: oldData.kpiTargets?.booked !== undefined ? oldData.kpiTargets.booked : 3, // mapped from something?
-        posToAbr: 50,
-        abrToBooked: 66
+        ...CONSTANTS.DEFAULT_KPI_TARGETS,
+        ...(oldData?.kpiTargets || {})
     };
 
-    return {
-        ...oldData,
+    const migratedState: AppState = {
+        schemaVersion: schemaVersion >= CONSTANTS.SCHEMA_VERSION ? schemaVersion : CONSTANTS.SCHEMA_VERSION,
+        experiments: migratedExperiments,
         dailyLogs: migratedLogs,
         leads: migratedLeads,
+        offers: oldData?.offers || [],
+        goals: oldData?.goals || legacyGoals,
         kpiTargets: mergedTargets,
         settings: {
-            ...oldData.settings,
-            accounts: oldData.settings?.accounts || ['Account 1', 'Account 2']
+            theme: oldData?.settings?.theme || 'dark',
+            accounts,
+            excludeOldLeadsFromKpi: oldData?.settings?.excludeOldLeadsFromKpi ?? true
         }
     };
+
+    return migratedState;
 };

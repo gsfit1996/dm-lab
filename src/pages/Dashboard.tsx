@@ -7,13 +7,25 @@ import {
 } from 'recharts';
 import { format, startOfWeek, parseISO, subDays } from 'date-fns';
 import { motion } from 'framer-motion';
-import { Download, Target, Sliders, ChevronDown } from 'lucide-react';
+import { Download, Target, Info } from 'lucide-react';
 import clsx from 'clsx';
 import ForecastingWidget from '../components/ForecastingWidget';
 
+const KPI_DEFINITIONS = {
+    CR: 'Connection Rate = connections accepted / connection requests sent.',
+    PRR: 'Positive Reply Rate = permission positives / permission messages sent.',
+    ABR: 'Appointment Booking Rate = offer or booking intent positives / permission messages sent.',
+    BOOKED: 'Booked KPI = booked calls / permission messages sent.',
+    POS_TO_ABR: 'Positive->ABR = offer or booking intent positives / permission positives.',
+    ABR_TO_BOOKED: 'ABR->Booked = booked calls / offer or booking intent positives.',
+    SEEN_RATE: 'Seen Rate = permission seen / permission messages sent.',
+    SRR: 'Show-up Rate = attended calls / booked calls.',
+    SCR: 'Sales Close Rate = closed deals / attended calls.'
+};
+
 export default function Dashboard() {
     const { state, actions } = useDMLab();
-    const { dailyLogs, experiments, goals, kpiTargets, settings } = state;
+    const { dailyLogs, experiments, kpiTargets, settings } = state;
 
     // Filter State
     const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d' | 'custom'>('all');
@@ -24,52 +36,43 @@ export default function Dashboard() {
 
     // Available campaigns
     const campaigns = useMemo(() => {
-        const unique = Array.from(new Set(dailyLogs.map(l => l.campaign).filter(Boolean)));
+        const unique = Array.from(new Set(dailyLogs.map(l => l.campaignTag).filter(Boolean)));
         return ['all', ...unique];
     }, [dailyLogs]);
 
     // Available accounts
-    const accounts = useMemo(() => {
-        const raw = settings.accounts || [];
-        const names = raw.map((a: any) => typeof a === 'string' ? a : a.name);
-        return ['all', ...names];
-    }, [settings.accounts]);
-
-    const defaultAccount = accounts[1] || 'Account 1'; // 0 is 'all'
+    const accounts = useMemo(() => settings.accounts || [], [settings.accounts]);
+    const defaultAccountId = accounts[0]?.id || 'account_1';
+    const accountOptions = useMemo(() => ['all', ...accounts.map(a => a.id)], [accounts]);
 
     // Filtered logs
     const filteredLogs = useMemo(() => {
         let logs = [...dailyLogs];
         const today = new Date();
 
-        // Account Filter
         if (accountFilter !== 'all') {
-            logs = logs.filter(l => (l.accountId || defaultAccount) === accountFilter);
+            logs = logs.filter(l => (l.accountId || defaultAccountId) === accountFilter);
         }
 
-        // Exclude Old Lane Logs from MAIN KPIs
-        const oldLaneLogs = logs.filter(l => l.isOldLane);
-        const activeLogs = logs.filter(l => !l.isOldLane);
-
-        // Date filtering on ACTIVE logs
-        let resultingLogs = activeLogs;
         if (dateFilter === '7d') {
             const cutoff = format(subDays(today, 7), 'yyyy-MM-dd');
-            resultingLogs = resultingLogs.filter(l => l.date >= cutoff);
+            logs = logs.filter(l => l.date >= cutoff);
         } else if (dateFilter === '30d') {
             const cutoff = format(subDays(today, 30), 'yyyy-MM-dd');
-            resultingLogs = resultingLogs.filter(l => l.date >= cutoff);
+            logs = logs.filter(l => l.date >= cutoff);
         } else if (dateFilter === 'custom' && customStartDate && customEndDate) {
-            resultingLogs = resultingLogs.filter(l => l.date >= customStartDate && l.date <= customEndDate);
+            logs = logs.filter(l => l.date >= customStartDate && l.date <= customEndDate);
         }
 
-        // Campaign filtering
         if (selectedCampaign !== 'all') {
-            resultingLogs = resultingLogs.filter(l => l.campaign === selectedCampaign);
+            logs = logs.filter(l => l.campaignTag === selectedCampaign);
         }
 
-        return { main: resultingLogs, oldLane: oldLaneLogs };
-    }, [dailyLogs, dateFilter, customStartDate, customEndDate, selectedCampaign, accountFilter, defaultAccount]);
+        const oldLaneLogs = logs.filter(l => l.isOldLeadsLane);
+        const mainLogs = settings.excludeOldLeadsFromKpi ? logs.filter(l => !l.isOldLeadsLane) : logs;
+
+        return { main: mainLogs, oldLane: oldLaneLogs, all: logs };
+    }, [dailyLogs, dateFilter, customStartDate, customEndDate, selectedCampaign, accountFilter, defaultAccountId, settings.excludeOldLeadsFromKpi]);
 
     // 1. Aggregates & KPIs
     const aggregates = useMemo(() => computeAggregates(filteredLogs.main), [filteredLogs.main]);
@@ -79,12 +82,23 @@ export default function Dashboard() {
     const thisWeekStats = useMemo(() => {
         const weekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
         const weekLogs = filteredLogs.main.filter(l => l.date >= weekStart);
-        return {
-            connectionRequests: weekLogs.reduce((sum, l) => sum + (l.connectionRequestsSent || 0), 0),
-            permissionSent: weekLogs.reduce((sum, l) => sum + (l.permissionMessagesSent || 0), 0),
-            booked: weekLogs.reduce((sum, l) => sum + (l.bookedCalls || 0), 0)
-        };
-    }, [filteredLogs.main]);
+        const totals: Record<string, { connectionRequests: number; permissionSent: number; booked: number }> = {};
+        accounts.forEach(acc => {
+            totals[acc.id] = { connectionRequests: 0, permissionSent: 0, booked: 0 };
+        });
+
+        weekLogs.forEach((log) => {
+            const accountId = log.accountId || defaultAccountId;
+            if (!totals[accountId]) {
+                totals[accountId] = { connectionRequests: 0, permissionSent: 0, booked: 0 };
+            }
+            totals[accountId].connectionRequests += log.connectionRequestsSent || 0;
+            totals[accountId].permissionSent += log.permissionMessagesSent || 0;
+            totals[accountId].booked += log.bookedCalls || 0;
+        });
+
+        return totals;
+    }, [filteredLogs.main, accounts, defaultAccountId]);
 
     // 3. Weekly Volume Chart Data
     const weeklyData = useMemo(() => {
@@ -111,47 +125,123 @@ export default function Dashboard() {
     const funnelData = useMemo(() => [
         { stage: 'Requested', count: aggregates.connectionRequestsSent },
         { stage: 'Connected', count: aggregates.connectionsAccepted },
-        { stage: 'Perm. Sent', count: aggregates.permissionMessagesSent },
-        { stage: 'Perm. Pos (+)', count: aggregates.permissionPositives },
-        { stage: 'Offer/Intent', count: aggregates.offerPositives },
+        { stage: 'Permission Sent', count: aggregates.permissionMessagesSent },
+        { stage: 'Permission Positive', count: aggregates.permissionPositives },
+        { stage: 'Offer/Intent', count: aggregates.offerOrBookingIntentPositives },
         { stage: 'Booked', count: aggregates.bookedCalls },
+        { stage: 'Attended', count: aggregates.attendedCalls },
+        { stage: 'Closed', count: aggregates.closedDeals }
     ], [aggregates]);
 
     // 5. Old Lane Data
     const oldLaneStats = useMemo(() => {
         return filteredLogs.oldLane.reduce((acc, log) => ({
             sent: acc.sent + (log.permissionMessagesSent || 0),
+            positives: acc.positives + (log.permissionPositives || 0),
             booked: acc.booked + (log.bookedCalls || 0)
-        }), { sent: 0, booked: 0 });
+        }), { sent: 0, positives: 0, booked: 0 });
     }, [filteredLogs.oldLane]);
+
+    const experimentSummaries = useMemo(() => {
+        return experiments.map((exp) => {
+            const expLogs = filteredLogs.main.filter(l => l.experimentId === exp.id);
+            const variants = exp.variants.map((variant) => {
+                const vLogs = expLogs.filter(l => l.variantId === variant.id);
+                const sent = vLogs.reduce((sum, l) => sum + (l.permissionMessagesSent || 0), 0);
+                const requests = vLogs.reduce((sum, l) => sum + (l.connectionRequestsSent || 0), 0);
+                const accepted = vLogs.reduce((sum, l) => sum + (l.connectionsAccepted || 0), 0);
+                const positives = vLogs.reduce((sum, l) => sum + (l.permissionPositives || 0), 0);
+                const offers = vLogs.reduce((sum, l) => sum + (l.offerOrBookingIntentPositives || 0), 0);
+                const booked = vLogs.reduce((sum, l) => sum + (l.bookedCalls || 0), 0);
+                const seen = vLogs.reduce((sum, l) => sum + ((exp.funnelStageTargeted === 'OFFER' ? l.offerSeen : l.permissionSeen) || 0), 0);
+                const denom = exp.primaryMetric === 'CR' ? requests : sent;
+                const rate = denom > 0
+                    ? exp.primaryMetric === 'CR'
+                        ? accepted / denom
+                        : exp.primaryMetric === 'PRR'
+                            ? positives / denom
+                            : exp.primaryMetric === 'ABR'
+                                ? offers / denom
+                                : booked / denom
+                    : 0;
+                const isValid = exp.requiredSampleSizeSeen > 0 ? seen >= exp.requiredSampleSizeSeen : true;
+                return { variant, seen, rate, isValid };
+            });
+
+            const validVariants = variants.filter(v => v.isValid);
+            const winner = validVariants.length > 0
+                ? validVariants.reduce((prev, current) => (prev.rate > current.rate ? prev : current), validVariants[0])
+                : null;
+
+            return { exp, variants, winner };
+        });
+    }, [experiments, filteredLogs.main]);
 
     // EXPORT
     const exportCSV = () => {
         const headers = [
-            'Date', 'Account', 'Old Lane', 'Campaign',
-            'Conn. Sent', 'Conn. Acc',
-            'Perm. Sent', 'Perm. Seen', 'Perm. Pos',
-            'Offer Pos', 'Booked Call', 'Notes'
+            'Date',
+            'Account',
+            'Old Leads Lane',
+            'Campaign Tag',
+            'Experiment',
+            'Variant',
+            'Conn Requests Sent',
+            'Connections Accepted',
+            'Permission Sent',
+            'Permission Seen',
+            'Permission Positives',
+            'Offer Sent',
+            'Offer Seen',
+            'Offer/Intent Positives',
+            'Booked Calls',
+            'Attended Calls',
+            'Closed Deals',
+            'CR (%)',
+            'PRR (%)',
+            'ABR (%)',
+            'Booked KPI (%)',
+            'Pos->ABR (%)',
+            'ABR->Booked (%)',
+            'Notes'
         ];
 
-        const allLogsToExport = [...filteredLogs.main, ...filteredLogs.oldLane].sort((a, b) => b.date.localeCompare(a.date));
+        const allLogsToExport = [...filteredLogs.all].sort((a, b) => b.date.localeCompare(a.date));
+        const pct = (num: number, den: number) => den ? (num / den * 100).toFixed(2) : '';
 
         const csvData = [
             headers,
-            ...allLogsToExport.map(log => [
-                log.date,
-                log.accountId || defaultAccount,
-                log.isOldLane ? 'Yes' : 'No',
-                log.campaign,
-                log.connectionRequestsSent,
-                log.connectionsAccepted,
-                log.permissionMessagesSent,
-                log.permissionSeen,
-                log.permissionPositives,
-                log.offerPositives,
-                log.bookedCalls,
-                `"${log.notes}"`
-            ])
+            ...allLogsToExport.map(log => {
+                const exp = experiments.find(e => e.id === log.experimentId);
+                const variant = exp?.variants.find(v => v.id === log.variantId);
+                const accountName = accounts.find(a => a.id === log.accountId)?.name || log.accountId || defaultAccountId;
+                return [
+                    log.date,
+                    accountName,
+                    log.isOldLeadsLane ? 'Yes' : 'No',
+                    log.campaignTag,
+                    exp?.name || '',
+                    variant?.label || '',
+                    log.connectionRequestsSent,
+                    log.connectionsAccepted,
+                    log.permissionMessagesSent,
+                    log.permissionSeen,
+                    log.permissionPositives,
+                    log.offerMessagesSent || 0,
+                    log.offerSeen || 0,
+                    log.offerOrBookingIntentPositives,
+                    log.bookedCalls,
+                    log.attendedCalls || 0,
+                    log.closedDeals || 0,
+                    pct(log.connectionsAccepted, log.connectionRequestsSent),
+                    pct(log.permissionPositives, log.permissionMessagesSent),
+                    pct(log.offerOrBookingIntentPositives, log.permissionMessagesSent),
+                    pct(log.bookedCalls, log.permissionMessagesSent),
+                    pct(log.offerOrBookingIntentPositives, log.permissionPositives),
+                    pct(log.bookedCalls, log.offerOrBookingIntentPositives),
+                    `"${log.notes}"`
+                ];
+            })
         ];
 
         const csvString = csvData.map(row => row.join(',')).join('\n');
@@ -159,7 +249,7 @@ export default function Dashboard() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `dm_lab_export_v2.csv`;
+        a.download = `dm_lab_export_v3.csv`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -184,7 +274,11 @@ export default function Dashboard() {
                     )}
 
                     <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} className="filter-select">
-                        {accounts.map(a => <option key={a} value={a}>{a === 'all' ? 'All Accounts' : a}</option>)}
+                        {accountOptions.map((id) => {
+                            if (id === 'all') return <option key="all" value="all">All Accounts</option>;
+                            const name = accounts.find(a => a.id === id)?.name || id;
+                            return <option key={id} value={id}>{name}</option>;
+                        })}
                     </select>
 
                     <select value={selectedCampaign} onChange={(e) => setSelectedCampaign(e.target.value)} className="filter-select">
@@ -210,29 +304,41 @@ export default function Dashboard() {
                 <div className="card-base col-span-1 lg:col-span-2">
                     <div className="flex items-center gap-2 mb-6">
                         <Target className="text-primary" size={20} />
-                        <h3 className="font-semibold text-white">Weekly Goals ({accountFilter === 'all' ? 'Combined' : accountFilter})</h3>
+                        <h3 className="font-semibold text-white">Weekly Goals</h3>
                     </div>
 
-                    {/* Goals Progress Bars */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <GoalProgressBar
-                            label="Requests Sent"
-                            current={thisWeekStats.connectionRequests}
-                            target={goals.weeklyConnectionRequests}
-                            onUpdate={(v) => actions.updateGoals({ weeklyConnectionRequests: v })}
-                        />
-                        <GoalProgressBar
-                            label="Permission Sent"
-                            current={thisWeekStats.permissionSent}
-                            target={goals.weeklyPermissionSent}
-                            onUpdate={(v) => actions.updateGoals({ weeklyPermissionSent: v })}
-                        />
-                        <GoalProgressBar
-                            label="Booked Calls"
-                            current={thisWeekStats.booked}
-                            target={goals.weeklyBooked}
-                            onUpdate={(v) => actions.updateGoals({ weeklyBooked: v })}
-                        />
+                    <div className="grid grid-cols-1 gap-6">
+                        {(accountFilter === 'all' ? accounts : accounts.filter(a => a.id === accountFilter)).map((acc) => {
+                            const stats = thisWeekStats[acc.id] || { connectionRequests: 0, permissionSent: 0, booked: 0 };
+                            return (
+                                <div key={acc.id} className="p-4 bg-secondary/10 rounded-xl border border-border">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: acc.color || '#3b82f6' }} />
+                                        <span className="text-sm font-semibold text-foreground">{acc.name}</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                        <GoalProgressBar
+                                            label="Requests Sent"
+                                            current={stats.connectionRequests}
+                                            target={acc.weeklyGoals?.weeklyConnectionRequests || 0}
+                                            onUpdate={(v) => actions.updateAccount(acc.id, { weeklyGoals: { ...acc.weeklyGoals, weeklyConnectionRequests: v } })}
+                                        />
+                                        <GoalProgressBar
+                                            label="Permission Sent"
+                                            current={stats.permissionSent}
+                                            target={acc.weeklyGoals?.weeklyPermissionSent || 0}
+                                            onUpdate={(v) => actions.updateAccount(acc.id, { weeklyGoals: { ...acc.weeklyGoals, weeklyPermissionSent: v } })}
+                                        />
+                                        <GoalProgressBar
+                                            label="Booked Calls"
+                                            current={stats.booked}
+                                            target={acc.weeklyGoals?.weeklyBooked || 0}
+                                            onUpdate={(v) => actions.updateAccount(acc.id, { weeklyGoals: { ...acc.weeklyGoals, weeklyBooked: v } })}
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -248,6 +354,10 @@ export default function Dashboard() {
                             <span className="text-2xl font-mono text-foreground">{oldLaneStats.sent}</span>
                         </div>
                         <div className="flex justify-between items-end">
+                            <span className="text-sm text-muted-foreground">Permission Positives</span>
+                            <span className="text-2xl font-mono text-primary font-bold">{oldLaneStats.positives}</span>
+                        </div>
+                        <div className="flex justify-between items-end">
                             <span className="text-sm text-muted-foreground">Booked</span>
                             <span className="text-2xl font-mono text-emerald-500 font-bold">{oldLaneStats.booked}</span>
                         </div>
@@ -259,16 +369,33 @@ export default function Dashboard() {
             </div>
 
             {/* Forecasting Widget */}
-            <ForecastingWidget cr={kpis.cr} prr={kpis.prr} abr={kpis.abr} bookedRate={kpis.bookedRate} />
+            <ForecastingWidget cr={kpis.cr || 0} prr={kpis.prr || 0} abr={kpis.abr || 0} bookedRate={kpis.bookedKpi || 0} />
 
             {/* KPI Tiles */}
             <div>
                 <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Primary Efficiency Metrics</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <RateCard title="Connection Rate (CR)" value={kpis.cr} target={kpiTargets.cr} status={kpis.crStatus} subtitle={`${aggregates.connectionsAccepted} / ${aggregates.connectionRequestsSent}`} onTargetChange={(v) => actions.updateKpiTargets({ cr: v })} />
-                    <RateCard title="Positive Reply (PRR)" value={kpis.prr} target={kpiTargets.prr} status={kpis.prrStatus} subtitle={`${aggregates.permissionPositives} / ${aggregates.permissionMessagesSent}`} onTargetChange={(v) => actions.updateKpiTargets({ prr: v })} />
-                    <RateCard title="Appt Booking (ABR)" value={kpis.abr} target={kpiTargets.abr} status={kpis.abrStatus} subtitle={`${aggregates.offerPositives} / ${aggregates.permissionMessagesSent}`} onTargetChange={(v) => actions.updateKpiTargets({ abr: v })} />
-                    <RateCard title="Booked Calls (BC)" value={kpis.bookedRate} target={kpiTargets.booked} status={kpis.bookedStatus} subtitle={`${aggregates.bookedCalls} / ${aggregates.permissionMessagesSent}`} onTargetChange={(v) => actions.updateKpiTargets({ booked: v })} />
+                    <RateCard title="Connection Rate (CR)" value={kpis.cr} target={kpiTargets.cr} status={kpis.crStatus} subtitle={`${aggregates.connectionsAccepted} / ${aggregates.connectionRequestsSent}`} tooltip={KPI_DEFINITIONS.CR} onTargetChange={(v) => actions.updateKpiTargets({ cr: v })} />
+                    <RateCard title="Positive Reply Rate (PRR)" value={kpis.prr} target={kpiTargets.prr} status={kpis.prrStatus} subtitle={`${aggregates.permissionPositives} / ${aggregates.permissionMessagesSent}`} tooltip={KPI_DEFINITIONS.PRR} onTargetChange={(v) => actions.updateKpiTargets({ prr: v })} />
+                    <RateCard title="Appointment Booking Rate (ABR)" value={kpis.abr} target={kpiTargets.abr} status={kpis.abrStatus} subtitle={`${aggregates.offerOrBookingIntentPositives} / ${aggregates.permissionMessagesSent}`} tooltip={KPI_DEFINITIONS.ABR} onTargetChange={(v) => actions.updateKpiTargets({ abr: v })} />
+                    <RateCard title="Booked KPI" value={kpis.bookedKpi} target={kpiTargets.booked} status={kpis.bookedStatus} subtitle={`${aggregates.bookedCalls} / ${aggregates.permissionMessagesSent}`} tooltip={KPI_DEFINITIONS.BOOKED} onTargetChange={(v) => actions.updateKpiTargets({ booked: v })} />
+                </div>
+            </div>
+
+            <div>
+                <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Secondary Diagnostics</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-6">
+                    <RateCard title="Positive -> ABR" value={kpis.posToAbr} target={kpiTargets.posToAbr} status={kpis.posToAbrStatus} subtitle={`${aggregates.offerOrBookingIntentPositives} / ${aggregates.permissionPositives}`} tooltip={KPI_DEFINITIONS.POS_TO_ABR} onTargetChange={(v) => actions.updateKpiTargets({ posToAbr: v })} />
+                    <RateCard title="ABR -> Booked" value={kpis.abrToBooked} target={kpiTargets.abrToBooked} status={kpis.abrToBookedStatus} subtitle={`${aggregates.bookedCalls} / ${aggregates.offerOrBookingIntentPositives}`} tooltip={KPI_DEFINITIONS.ABR_TO_BOOKED} onTargetChange={(v) => actions.updateKpiTargets({ abrToBooked: v })} />
+                </div>
+            </div>
+
+            <div>
+                <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Optional Diagnostics</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <RateCard title="Seen Rate" value={kpis.seenRate} target={kpiTargets.seenRate} status={kpis.seenRateStatus} subtitle={`${aggregates.permissionSeen} / ${aggregates.permissionMessagesSent}`} tooltip={KPI_DEFINITIONS.SEEN_RATE} onTargetChange={(v) => actions.updateKpiTargets({ seenRate: v })} />
+                    <RateCard title="Show-up Rate (SRR)" value={kpis.showUpRate} target={kpiTargets.srr} status={kpis.showUpRateStatus} subtitle={`${aggregates.attendedCalls} / ${aggregates.bookedCalls}`} tooltip={KPI_DEFINITIONS.SRR} onTargetChange={(v) => actions.updateKpiTargets({ srr: v })} />
+                    <RateCard title="Sales Close Rate (SCR)" value={kpis.salesCloseRate} target={kpiTargets.scr} status={kpis.salesCloseRateStatus} subtitle={`${aggregates.closedDeals} / ${aggregates.attendedCalls}`} tooltip={KPI_DEFINITIONS.SCR} onTargetChange={(v) => actions.updateKpiTargets({ scr: v })} />
                 </div>
             </div>
 
@@ -309,13 +436,73 @@ export default function Dashboard() {
                     </ResponsiveContainer>
                 </div>
             </div>
+
+            <div className="card-base">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-white">Multivariate Experiment Lab</h3>
+                    <span className="text-xs text-muted-foreground">Only valid samples show a leader</span>
+                </div>
+
+                {experimentSummaries.length === 0 && (
+                    <div className="text-sm text-muted-foreground">No experiments yet.</div>
+                )}
+
+                <div className="grid grid-cols-1 gap-4">
+                    {experimentSummaries.map(({ exp, variants, winner }) => (
+                        <div key={exp.id} className="p-4 bg-secondary/10 rounded-xl border border-border">
+                            <div className="flex items-center justify-between mb-3">
+                                <div>
+                                    <div className="text-sm font-semibold text-foreground">{exp.name}</div>
+                                    <div className="text-xs text-muted-foreground">{exp.funnelStageTargeted} Stage | Primary: {exp.primaryMetric}</div>
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                    {exp.requiredSampleSizeSeen > 0 ? `Seen target: ${exp.requiredSampleSizeSeen}` : 'No seen threshold'}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {variants.map((variant) => (
+                                    <div key={variant.variant.id} className={clsx(
+                                        "p-3 rounded-lg border border-[var(--border)]",
+                                        winner?.variant.id === variant.variant.id && "border-emerald-500/40 bg-emerald-500/5"
+                                    )}>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Variant {variant.variant.label}</span>
+                                            {winner?.variant.id === variant.variant.id && (
+                                                <span className="text-[10px] bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded">Leader</span>
+                                            )}
+                                        </div>
+                                        <div className="text-lg font-bold text-foreground">{(variant.rate * 100).toFixed(1)}%</div>
+                                        <div className="text-[10px] text-muted-foreground">Seen: {variant.seen}</div>
+                                        <div className={clsx(
+                                            "mt-2 inline-flex items-center gap-1 text-[10px] uppercase font-bold px-2 py-1 rounded",
+                                            variant.isValid ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
+                                        )}>
+                                            {variant.isValid ? 'Valid' : 'Insufficient sample'}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {import.meta.env.DEV && (
+                <div className="card-base border-dashed border-border">
+                    <h3 className="font-semibold text-white mb-2">Dev KPI Debug</h3>
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap">
+                        {JSON.stringify({ aggregates, kpis }, null, 2)}
+                    </pre>
+                </div>
+            )}
         </div>
     );
 }
 
-function RateCard({ title, value, target, status, subtitle, onTargetChange }: any) {
+function RateCard({ title, value, target, status, subtitle, tooltip, onTargetChange }: any) {
     const [editing, setEditing] = useState(false);
-    const safeVal = isNaN(value) ? 0 : value;
+    const safeVal = typeof value === 'number' ? value : null;
     const color = status === 'green' ? 'text-emerald-500' :
         status === 'yellow' ? 'text-amber-500' :
             status === 'red' ? 'text-red-500' : 'text-muted-foreground';
@@ -323,12 +510,15 @@ function RateCard({ title, value, target, status, subtitle, onTargetChange }: an
     return (
         <div className="card-base flex flex-col justify-between min-h-[140px]">
             <div>
-                <span className="text-muted-foreground text-sm font-medium block">{title}</span>
+                <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground text-sm font-medium block">{title}</span>
+                    {tooltip && <Info size={14} className="text-muted-foreground/70" title={tooltip} />}
+                </div>
                 {subtitle && <span className="text-[10px] text-muted-foreground opacity-50 font-mono mt-1 block">{subtitle}</span>}
             </div>
 
             <div>
-                <div className="text-3xl font-bold text-foreground">{(safeVal * 100).toFixed(1)}%</div>
+                <div className="text-3xl font-bold text-foreground">{safeVal === null ? '--' : `${(safeVal * 100).toFixed(1)}%`}</div>
 
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
                     <span className={clsx("text-xs font-bold uppercase tracking-wider", color)}>{status === 'neutral' ? 'Ratio' : status}</span>
@@ -354,7 +544,7 @@ function RateCard({ title, value, target, status, subtitle, onTargetChange }: an
 
 function GoalProgressBar({ label, current, target, onUpdate }: any) {
     const [editing, setEditing] = useState(false);
-    const pct = Math.min((current / target) * 100, 100);
+    const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
 
     return (
         <div>

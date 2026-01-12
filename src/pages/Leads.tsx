@@ -6,10 +6,15 @@ import clsx from 'clsx';
 import { v4 as uuidv4 } from 'uuid';
 
 const STAGES: { value: LeadStage; label: string; color: string }[] = [
-    { value: 'PERMISSION_POSITIVE', label: 'Permission Pos (+)', color: 'bg-pink-500/10 text-pink-400' },
-    { value: 'OFFER_POSITIVE', label: 'Offer/Intent (+)', color: 'bg-orange-500/10 text-orange-400' },
+    { value: 'REQUESTED', label: 'Requested', color: 'bg-sky-500/10 text-sky-400' },
+    { value: 'CONNECTED', label: 'Connected', color: 'bg-indigo-500/10 text-indigo-400' },
+    { value: 'PERMISSION_SENT', label: 'Permission Sent', color: 'bg-purple-500/10 text-purple-400' },
+    { value: 'PERMISSION_POSITIVE', label: 'Permission Positive', color: 'bg-pink-500/10 text-pink-400' },
+    { value: 'OFFER_POSITIVE', label: 'Offer Positive / Intent', color: 'bg-orange-500/10 text-orange-400' },
     { value: 'BOOKED', label: 'Booked', color: 'bg-emerald-500/10 text-emerald-400' },
-    { value: 'LOST', label: 'Lost', color: 'bg-red-500/10 text-red-400' },
+    { value: 'ATTENDED', label: 'Attended', color: 'bg-emerald-500/5 text-emerald-300' },
+    { value: 'CLOSED', label: 'Closed', color: 'bg-emerald-500/5 text-emerald-200' },
+    { value: 'LOST', label: 'Lost', color: 'bg-red-500/10 text-red-400' }
 ];
 
 export default function Leads() {
@@ -19,19 +24,16 @@ export default function Leads() {
     const [showAddForm, setShowAddForm] = useState(false);
 
     // Available accounts
-    const accountList = useMemo(() => {
-        const raw = settings.accounts || [];
-        return raw.map((a: any) => typeof a === 'string' ? a : a.name);
-    }, [settings.accounts]);
-    const defaultAccount = accountList[0] || 'Account 1';
+    const accountList = useMemo(() => settings.accounts || [], [settings.accounts]);
+    const defaultAccountId = accountList[0]?.id || 'account_1';
 
     // Form State
     const [newLead, setNewLead] = useState<Partial<Lead>>({
         name: '',
         linkedinUrl: '',
-        stage: 'PERMISSION_POSITIVE',
-        accountId: defaultAccount,
-        isOldLane: false,
+        stage: 'REQUESTED',
+        accountId: defaultAccountId,
+        isOldLeadsLane: false,
         notes: ''
     });
 
@@ -63,17 +65,17 @@ export default function Leads() {
             id: uuidv4(),
             name: newLead.name || 'Unknown',
             linkedinUrl: newLead.linkedinUrl || '',
-            stage: newLead.stage as LeadStage || 'REQUESTED',
+            stage: (newLead.stage as LeadStage) || 'REQUESTED',
             notes: newLead.notes || '',
-            accountId: newLead.accountId || defaultAccount,
-            isOldLane: newLead.isOldLane || false,
+            accountId: newLead.accountId || defaultAccountId,
+            isOldLeadsLane: newLead.isOldLeadsLane || false,
 
             dateInitiated: new Date().toISOString().split('T')[0],
             lastInteraction: new Date().toISOString().split('T')[0],
             createdAt: new Date().toISOString()
         };
         actions.addLead(lead);
-        setNewLead({ name: '', linkedinUrl: '', stage: 'REQUESTED', accountId: defaultAccount, isOldLane: false, notes: '' });
+        setNewLead({ name: '', linkedinUrl: '', stage: 'REQUESTED', accountId: defaultAccountId, isOldLeadsLane: false, notes: '' });
         setShowAddForm(false);
     };
 
@@ -116,7 +118,7 @@ export default function Leads() {
                                 <h3 className="font-bold text-lg text-white">{activeLead.name}</h3>
                                 <p className="text-xs text-muted-foreground">Smart Context & History</p>
                             </div>
-                            <button onClick={() => setActiveLeadId(null)} className="p-2 hover:bg-secondary rounded">✕</button>
+                            <button onClick={() => setActiveLeadId(null)} className="p-2 hover:bg-secondary rounded">X</button>
                         </div>
 
                         <div className="flex-1 p-0 flex flex-col overflow-hidden">
@@ -177,12 +179,12 @@ export default function Leads() {
                         <label className="flex flex-col gap-1">
                             <span className="text-xs font-bold text-muted-foreground uppercase">Account</span>
                             <select className="input" value={newLead.accountId} onChange={e => setNewLead({ ...newLead, accountId: e.target.value })}>
-                                {accountList.map(a => <option key={a} value={a}>{a}</option>)}
+                                {accountList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                             </select>
                         </label>
                         <label className="flex items-center gap-2 mt-6">
-                            <input type="checkbox" checked={newLead.isOldLane} onChange={e => setNewLead({ ...newLead, isOldLane: e.target.checked })} className="w-4 h-4" />
-                            <span className="text-xs font-bold text-muted-foreground uppercase">Old Lane?</span>
+                            <input type="checkbox" checked={newLead.isOldLeadsLane} onChange={e => setNewLead({ ...newLead, isOldLeadsLane: e.target.checked })} className="w-4 h-4" />
+                            <span className="text-xs font-bold text-muted-foreground uppercase">Old Leads Lane?</span>
                         </label>
                         <label className="flex flex-col gap-1 col-span-full">
                             <span className="text-xs font-bold text-muted-foreground uppercase">Notes</span>
@@ -212,7 +214,7 @@ export default function Leads() {
                                         <div className="flex justify-between items-start mb-2">
                                             <div>
                                                 <div className="font-bold text-white group-hover:text-primary transition-colors cursor-pointer" onClick={() => openConversation(lead)}>{lead.name}</div>
-                                                <div className="text-[10px] text-muted-foreground">{lead.accountId || defaultAccount}</div>
+                                        <div className="text-[10px] text-muted-foreground">{accountList.find(a => a.id === lead.accountId)?.name || lead.accountId || defaultAccountId}</div>
                                             </div>
                                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <button onClick={() => actions.deleteLead(lead.id)} className="p-1 hover:text-red-500"><Trash2 size={14} /></button>
@@ -256,7 +258,7 @@ export default function Leads() {
                                                 </div>
                                             </div>
                                         </div>
-                                        {lead.isOldLane && <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-500" title="Old Lane" />}
+                                        {lead.isOldLeadsLane && <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-500" title="Old Leads Lane" />}
                                     </div>
                                 ))}
                                 {stageLeads.length === 0 && (

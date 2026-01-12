@@ -3,12 +3,13 @@ export type Channel = 'linkedin' | 'personalized' | 'offer';
 export type ExperimentType = 'PERMISSION_MESSAGE' | 'OFFER_MESSAGE' | 'OLD_LEADS_REOFFER';
 export type ExperimentStage = 'CONNECTION' | 'PERMISSION' | 'OFFER' | 'BOOKING';
 export type PrimaryMetric = 'CR' | 'PRR' | 'ABR' | 'BOOKED_KPI';
+export type VariantStep = 'permission' | 'offer' | 'booking_cta' | 'follow_up';
 
 export interface Variant {
     id: string;
     label: string;
     message: string;
-    step?: string; // e.g., 'permission_opener', 'offer_cta', etc.
+    step?: VariantStep | string;
 }
 
 export interface Experiment {
@@ -17,22 +18,27 @@ export interface Experiment {
     hypothesis: string;
     status: ExperimentStatus;
     channel: Channel;
-    experimentType: ExperimentType; // PERMISSION_MESSAGE | OFFER_MESSAGE | OLD_LEADS_REOFFER
-    stage: ExperimentStage; // Derived from experimentType
-    primaryMetric: PrimaryMetric; // Auto-set based on experimentType
+    funnelStageTargeted: ExperimentStage;
+    primaryMetric: PrimaryMetric;
+    requiredSampleSizeSeen: number;
+    experimentType?: ExperimentType;
+    stage?: ExperimentStage;
     createdAt: string;
     startedAt?: string;
     variants: Variant[];
 }
 
-// Elite Health "Hot Prospects" - only track late-stage leads
 export type LeadStage =
-    | 'PERMISSION_POSITIVE'  // Permission positive (👍 to permission)
-    | 'OFFER_POSITIVE'       // Offer positive / Booking Intent (👍 to offer)
-    | 'BOOKED'               // Call booked
-    | 'LOST';                // Lost / Not Interested
+    | 'REQUESTED'
+    | 'CONNECTED'
+    | 'PERMISSION_SENT'
+    | 'PERMISSION_POSITIVE'
+    | 'OFFER_POSITIVE'
+    | 'BOOKED'
+    | 'ATTENDED'
+    | 'CLOSED'
+    | 'LOST';
 
-// Legacy stages for migration compatibility
 export type LegacyLeadStage =
     | 'REQUESTED'
     | 'CONNECTED'
@@ -40,7 +46,14 @@ export type LegacyLeadStage =
     | 'PERMISSION_POS'
     | 'OFFER_POS'
     | 'ATTENDED'
-    | 'CLOSED';
+    | 'CLOSED'
+    | 'A'
+    | 'S'
+    | 'B'
+    | 'C'
+    | 'D'
+    | 'X'
+    | 'LOST';
 
 export interface Lead {
     id: string;
@@ -49,10 +62,10 @@ export interface Lead {
     linkedinUrl?: string;
     dateInitiated: string;
     lastInteraction?: string;
-    stage: LeadStage; // Updated enum
-    accountId?: string; // New field
-    isOldLane?: boolean; // New field
-    conversationHistory?: string; // Stored as a single text blob for now for ease of editing
+    stage: LeadStage;
+    accountId?: string;
+    isOldLeadsLane?: boolean;
+    conversationHistory?: string;
     experimentId?: string;
     variantId?: string;
     notes: string;
@@ -61,31 +74,28 @@ export interface Lead {
 
 export interface DailyLog {
     id: string;
-    date: string; // YYYY-MM-DD
+    date: string;
     experimentId: string;
     variantId?: string;
-    campaign: string;
+    campaignTag: string;
     channel: Channel;
 
-    // Identity & Segmentation
-    accountId?: string; // 'Account 1' | 'Account 2'
-    isOldLane?: boolean; // If true, exclude from primary KPIs
+    accountId?: string;
+    isOldLeadsLane?: boolean;
 
-    // Primary Flow Metrics
     connectionRequestsSent: number;
     connectionsAccepted: number;
 
     permissionMessagesSent: number;
-    permissionSeen: number; // Diagnostic / Test Validity
-    permissionPositives: number; // PRR numerator
+    permissionSeen: number;
+    permissionPositives: number;
 
-    offerMessagesSent?: number; // Optional
-    offerSeen?: number; // Diagnostic / Test Validity
-    offerPositives: number; // ABR numerator (Offer or Booking Intent)
+    offerMessagesSent?: number;
+    offerSeen?: number;
+    offerOrBookingIntentPositives: number;
 
-    bookedCalls: number; // Booked KPI numerator
+    bookedCalls: number;
 
-    // Sales / Downstream (Optional)
     attendedCalls?: number;
     closedDeals?: number;
 
@@ -103,42 +113,48 @@ export interface Offer {
     notes: string;
 }
 
-export interface Goals {
+export interface WeeklyGoals {
     weeklyConnectionRequests: number;
     weeklyPermissionSent: number;
     weeklyBooked: number;
 }
 
+export interface Account {
+    id: string;
+    name: string;
+    weeklyGoals: WeeklyGoals;
+    color?: string;
+}
+
 export interface KpiTargets {
-    cr: number;  // Connection Rate (30%)
-    prr: number; // Positive Reply Rate (8%)
-    abr: number; // Appointment Booking Rate (4%)
-    booked: number; // Booked KPI (3%)
-
-    // Diagnostic / Secondary
-    posToAbr: number; // 50%
-    abrToBooked: number; // 66%
-
-    // Optional
-    srr?: number; // Show up rate
-    scr?: number; // Sales Close Rate
-    seenRate?: number; // Diagnostic info only, usually 60%
+    cr: number;
+    prr: number;
+    abr: number;
+    booked: number;
+    posToAbr: number;
+    abrToBooked: number;
+    srr?: number;
+    scr?: number;
+    seenRate?: number;
 }
 
 export interface AppState {
+    schemaVersion: number;
     experiments: Experiment[];
     dailyLogs: DailyLog[];
     leads: Lead[];
     offers: Offer[];
-    goals: Goals; // Account-specific goals can be handled by just summing or generic "per account" logic in UI for now, or updating this structure if needed. User said "per account" in UI, but single settings. Let's stick to simple first.
+    goals?: WeeklyGoals;
     kpiTargets: KpiTargets;
     settings: {
         theme: 'dark' | 'light';
-        accounts: string[]; // List of account names
+        accounts: Account[];
+        excludeOldLeadsFromKpi: boolean;
     };
 }
 
 export const CONSTANTS = {
+    SCHEMA_VERSION: 3,
     KPI_THRESHOLDS: {
         CR: 0.30,
         PRR: 0.08,
@@ -147,7 +163,6 @@ export const CONSTANTS = {
         POS_TO_ABR: 0.50,
         ABR_TO_BOOKED: 0.66
     },
-    // For test validity
     VALIDITY_THRESHOLDS: {
         PERMISSION_SEEN: 60,
         OFFER_SEEN: 30
@@ -160,8 +175,35 @@ export const CONSTANTS = {
         posToAbr: 50,
         abrToBooked: 66,
         srr: 80,
-        scr: 20
+        scr: 20,
+        seenRate: 60
     },
-    STORAGE_KEY: 'dm_lab_v2', // Bumped version
-    ACCOUNTS: ['Account 1', 'Account 2']
+    STORAGE_KEY: 'dm_lab_v2',
+    DEFAULT_WEEKLY_GOALS: {
+        weeklyConnectionRequests: 100,
+        weeklyPermissionSent: 100,
+        weeklyBooked: 5
+    },
+    DEFAULT_ACCOUNTS: [
+        {
+            id: 'account_1',
+            name: 'Account 1',
+            weeklyGoals: {
+                weeklyConnectionRequests: 100,
+                weeklyPermissionSent: 100,
+                weeklyBooked: 5
+            },
+            color: '#3b82f6'
+        },
+        {
+            id: 'account_2',
+            name: 'Account 2',
+            weeklyGoals: {
+                weeklyConnectionRequests: 100,
+                weeklyPermissionSent: 100,
+                weeklyBooked: 5
+            },
+            color: '#22c55e'
+        }
+    ]
 };
