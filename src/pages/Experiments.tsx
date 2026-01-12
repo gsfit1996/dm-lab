@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useDMLab } from '../context/DMLabContext';
-import { Experiment, ExperimentStage, PrimaryMetric, CONSTANTS } from '../types';
+import { Experiment, ExperimentType, ExperimentStage, PrimaryMetric, CONSTANTS } from '../types';
 import { Play, Pause, Archive as ArchiveIcon, Trash2, Copy, Plus, Edit2, X, AlertTriangle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import clsx from 'clsx';
@@ -16,8 +16,9 @@ export default function Experiments() {
         hypothesis: '',
         status: 'planned',
         channel: 'linkedin',
-        stage: 'PERMISSION', // Default
-        primaryMetric: 'PRR', // Default based on permission
+        experimentType: 'PERMISSION_MESSAGE', // Primary selector
+        stage: 'PERMISSION', // Auto-derived
+        primaryMetric: 'PRR', // Auto-derived
         variants: [
             { id: uuidv4(), label: 'A', message: '' },
             { id: uuidv4(), label: 'B', message: '' }
@@ -51,16 +52,26 @@ export default function Experiments() {
         });
     };
 
-    // Auto-update primary metric when stage changes
-    const handleStageChange = (stage: ExperimentStage) => {
+    // Auto-update stage and primary metric when experiment type changes
+    const handleExperimentTypeChange = (experimentType: ExperimentType) => {
+        let stage: ExperimentStage = 'PERMISSION';
         let metric: PrimaryMetric = 'PRR';
-        switch (stage) {
-            case 'CONNECTION': metric = 'CR'; break;
-            case 'PERMISSION': metric = 'PRR'; break;
-            case 'OFFER': metric = 'ABR'; break;
-            case 'BOOKING': metric = 'BOOKED_KPI'; break;
+
+        switch (experimentType) {
+            case 'PERMISSION_MESSAGE':
+                stage = 'PERMISSION';
+                metric = 'PRR';
+                break;
+            case 'OFFER_MESSAGE':
+                stage = 'OFFER';
+                metric = 'ABR';
+                break;
+            case 'OLD_LEADS_REOFFER':
+                stage = 'OFFER'; // Old leads re-offers target the offer stage
+                metric = 'BOOKED_KPI'; // Primary metric for old leads is Booked KPI
+                break;
         }
-        setForm({ ...form, stage, primaryMetric: metric });
+        setForm({ ...form, experimentType, stage, primaryMetric: metric });
     };
 
     // Helper to get metrics for an experiment
@@ -164,34 +175,23 @@ export default function Experiments() {
                                 <input className="input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required placeholder="e.g. Permission Opener Test" />
                             </label>
 
-                            <div className="grid grid-cols-2 gap-2">
-                                <label className="flex flex-col gap-1">
-                                    <span className="text-sm">Stage Targeted</span>
-                                    <select
-                                        className="input"
-                                        value={form.stage}
-                                        onChange={e => handleStageChange(e.target.value as ExperimentStage)}
-                                    >
-                                        <option value="CONNECTION">Connection</option>
-                                        <option value="PERMISSION">Permission</option>
-                                        <option value="OFFER">Offer</option>
-                                        <option value="BOOKING">Booking</option>
-                                    </select>
-                                </label>
-                                <label className="flex flex-col gap-1">
-                                    <span className="text-sm">Primary Metric</span>
-                                    <select
-                                        className="input"
-                                        value={form.primaryMetric}
-                                        onChange={e => setForm({ ...form, primaryMetric: e.target.value as PrimaryMetric })}
-                                    >
-                                        <option value="CR">CR</option>
-                                        <option value="PRR">PRR</option>
-                                        <option value="ABR">ABR</option>
-                                        <option value="BOOKED_KPI">Booked KPI</option>
-                                    </select>
-                                </label>
-                            </div>
+                            <label className="flex flex-col gap-1">
+                                <span className="text-sm">Experiment Type</span>
+                                <select
+                                    className="input"
+                                    value={form.experimentType}
+                                    onChange={e => handleExperimentTypeChange(e.target.value as ExperimentType)}
+                                >
+                                    <option value="PERMISSION_MESSAGE">Permission Message</option>
+                                    <option value="OFFER_MESSAGE">Offer Message</option>
+                                    <option value="OLD_LEADS_REOFFER">Old Leads Re-offer</option>
+                                </select>
+                                <span className="text-xs text-muted-foreground">
+                                    {form.experimentType === 'PERMISSION_MESSAGE' && '≥ 60 SEEN required for validity'}
+                                    {form.experimentType === 'OFFER_MESSAGE' && '≥ 30 SEEN required for validity'}
+                                    {form.experimentType === 'OLD_LEADS_REOFFER' && '≥ 30 SEEN required for validity'}
+                                </span>
+                            </label>
                         </div>
 
                         <label className="flex flex-col gap-1">

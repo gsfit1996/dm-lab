@@ -1,4 +1,4 @@
-import { AppState, DailyLog, Lead, LeadStage } from '../types';
+import { AppState, DailyLog, Lead, LeadStage, LegacyLeadStage, Experiment, ExperimentType } from '../types';
 
 export const migrateData = (oldData: any): AppState => {
     console.log("Migrating data to v2 schema...");
@@ -44,29 +44,73 @@ export const migrateData = (oldData: any): AppState => {
         };
     });
 
-    // 2. Migrate Leads
+    // 2. Migrate Leads - map legacy stages to simplified hot prospects
     const migratedLeads: Lead[] = (oldData.leads || []).map((lead: any) => {
-        if (lead.accountId !== undefined) return lead as Lead;
+        // Already migrated if has new simple stages
+        if (lead.stage === 'PERMISSION_POSITIVE' || lead.stage === 'OFFER_POSITIVE' || lead.stage === 'BOOKED' || lead.stage === 'LOST') {
+            return {
+                ...lead,
+                accountId: lead.accountId || 'Account 1',
+                isOldLane: lead.isOldLane || false
+            };
+        }
 
-        // Map old stages A/S/B/C/D to new enums
-        let newStage: LeadStage = 'REQUESTED';
+        // Map old stages to hot prospects only
+        // Rule: Only track Permission Positive, Offer Positive, Booked, Lost
+        // Earlier stages (Requested, Connected, Permission Sent) should NOT be tracked as named leads
+        let newStage: LeadStage = 'PERMISSION_POSITIVE'; // Default for hot prospects
+
         switch (lead.stage) {
-            case 'A': newStage = 'PERMISSION_SENT'; break; // 'Initiated' mapped to Permission Sent per spec
-            case 'S': newStage = 'PERMISSION_SENT'; break; // Seen is diagnostic, keep at sent or move to Connected? Spec said "A = Permission Sent".
-            case 'B': newStage = 'PERMISSION_POS'; break; // Engaged -> Positive
-            case 'C': newStage = 'OFFER_POS'; break; // Calendly -> Booking Intent
-            case 'D': newStage = 'BOOKED'; break; // Booked
-            case 'X': newStage = 'LOST'; break;
-            default: newStage = 'REQUESTED';
+            // Legacy full funnel stages - map to hot prospects
+            case 'REQUESTED':
+            case 'CONNECTED':
+            case 'PERMISSION_SENT':
+                // These are NOT hot prospects - should not be in the simplified CRM
+                // Skip or map to Permission Positive if they exist
+                return null; // Filter these out
+            case 'PERMISSION_POS':
+                newStage = 'PERMISSION_POSITIVE';
+                break;
+            case 'OFFER_POS':
+                newStage = 'OFFER_POSITIVE';
+                break;
+            case 'BOOKED':
+                newStage = 'BOOKED';
+                break;
+            case 'ATTENDED':
+            case 'CLOSED':
+                // These converted successfully, keep as Booked
+                newStage = 'BOOKED';
+                break;
+            case 'LOST':
+            case 'X':
+                newStage = 'LOST';
+                break;
+            // Old A/S/B/C/D notation
+            case 'A': // Permission Sent - NOT a hot prospect
+            case 'S': // Seen - NOT a hot prospect
+                return null; // Filter out
+            case 'B': // Engaged - Permission Positive
+                newStage = 'PERMISSION_POSITIVE';
+                break;
+            case 'C': // Calendly - Offer Positive
+                newStage = 'OFFER_POSITIVE';
+                break;
+            case 'D': // Booked
+                newStage = 'BOOKED';
+                break;
+            default:
+                // Unknown stage - filter out
+                return null;
         }
 
         return {
             ...lead,
             stage: newStage,
-            accountId: 'Account 1',
-            isOldLane: false
+            accountId: lead.accountId || 'Account 1',
+            isOldLane: lead.isOldLane || false
         };
-    });
+    }).filter((lead): lead is Lead => lead !== null); // Remove nulls
 
     // 3. Migrate Settings/Targets
     // Merge defaults onto existing targets if they are missing

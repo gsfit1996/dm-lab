@@ -1,5 +1,6 @@
 export type ExperimentStatus = 'planned' | 'running' | 'paused' | 'completed' | 'archived';
 export type Channel = 'linkedin' | 'personalized' | 'offer';
+export type ExperimentType = 'PERMISSION_MESSAGE' | 'OFFER_MESSAGE' | 'OLD_LEADS_REOFFER';
 export type ExperimentStage = 'CONNECTION' | 'PERMISSION' | 'OFFER' | 'BOOKING';
 export type PrimaryMetric = 'CR' | 'PRR' | 'ABR' | 'BOOKED_KPI';
 
@@ -16,24 +17,30 @@ export interface Experiment {
     hypothesis: string;
     status: ExperimentStatus;
     channel: Channel;
-    stage: ExperimentStage; // New field
-    primaryMetric: PrimaryMetric; // New field
+    experimentType: ExperimentType; // PERMISSION_MESSAGE | OFFER_MESSAGE | OLD_LEADS_REOFFER
+    stage: ExperimentStage; // Derived from experimentType
+    primaryMetric: PrimaryMetric; // Auto-set based on experimentType
     createdAt: string;
     startedAt?: string;
     variants: Variant[];
 }
 
-// Updated based on "Recommended funnel"
+// Elite Health "Hot Prospects" - only track late-stage leads
 export type LeadStage =
-    | 'REQUESTED'       // Connection request sent
-    | 'CONNECTED'       // Connection accepted
-    | 'PERMISSION_SENT' // Permission message sent
-    | 'PERMISSION_POS'  // Permission positive
-    | 'OFFER_POS'       // Offer positive / Booking Intent
-    | 'BOOKED'          // Call booked
-    | 'ATTENDED'        // Call attended (optional)
-    | 'CLOSED'          // Deal closed (optional)
-    | 'LOST';           // Lost / Not Interested
+    | 'PERMISSION_POSITIVE'  // Permission positive (👍 to permission)
+    | 'OFFER_POSITIVE'       // Offer positive / Booking Intent (👍 to offer)
+    | 'BOOKED'               // Call booked
+    | 'LOST';                // Lost / Not Interested
+
+// Legacy stages for migration compatibility
+export type LegacyLeadStage =
+    | 'REQUESTED'
+    | 'CONNECTED'
+    | 'PERMISSION_SENT'
+    | 'PERMISSION_POS'
+    | 'OFFER_POS'
+    | 'ATTENDED'
+    | 'CLOSED';
 
 export interface Lead {
     id: string;

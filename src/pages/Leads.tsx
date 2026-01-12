@@ -6,11 +6,8 @@ import clsx from 'clsx';
 import { v4 as uuidv4 } from 'uuid';
 
 const STAGES: { value: LeadStage; label: string; color: string }[] = [
-    { value: 'REQUESTED', label: 'Requested', color: 'bg-blue-500/10 text-blue-400' },
-    { value: 'CONNECTED', label: 'Connected', color: 'bg-indigo-500/10 text-indigo-400' },
-    { value: 'PERMISSION_SENT', label: 'Perm. Sent', color: 'bg-purple-500/10 text-purple-400' },
-    { value: 'PERMISSION_POS', label: 'Perm. Pos (+)', color: 'bg-pink-500/10 text-pink-400' },
-    { value: 'OFFER_POS', label: 'Offer/Intent', color: 'bg-orange-500/10 text-orange-400' },
+    { value: 'PERMISSION_POSITIVE', label: 'Permission Pos (+)', color: 'bg-pink-500/10 text-pink-400' },
+    { value: 'OFFER_POSITIVE', label: 'Offer/Intent (+)', color: 'bg-orange-500/10 text-orange-400' },
     { value: 'BOOKED', label: 'Booked', color: 'bg-emerald-500/10 text-emerald-400' },
     { value: 'LOST', label: 'Lost', color: 'bg-red-500/10 text-red-400' },
 ];
@@ -32,7 +29,7 @@ export default function Leads() {
     const [newLead, setNewLead] = useState<Partial<Lead>>({
         name: '',
         linkedinUrl: '',
-        stage: 'REQUESTED',
+        stage: 'PERMISSION_POSITIVE',
         accountId: defaultAccount,
         isOldLane: false,
         notes: ''
