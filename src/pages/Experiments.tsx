@@ -10,6 +10,9 @@ export default function Experiments() {
     const { experiments, dailyLogs } = state;
     const [showForm, setShowForm] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
+    const activeCount = experiments.filter(exp => exp.status !== 'archived').length;
+    const runningCount = experiments.filter(exp => exp.status === 'running').length;
+    const variantCount = experiments.reduce((sum, exp) => sum + exp.variants.length, 0);
 
     const initialForm: Omit<Experiment, 'id' | 'createdAt'> = {
         name: '',
@@ -158,15 +161,30 @@ export default function Experiments() {
 
     return (
         <div className="flex flex-col gap-6">
-            {!showForm && (
-                <button onClick={() => setShowForm(true)} className="btn w-fit">
-                    <Plus size={18} /> New Multivariate Experiment
-                </button>
-            )}
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                    <div className="section-kicker">Experiments</div>
+                    <h1 className="section-title">Experiment Lab</h1>
+                    <p className="section-subtitle">Design, launch, and validate multivariate tests with sample gating.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="pill">Active: {activeCount}</span>
+                    <span className="pill pill-accent">Running: {runningCount}</span>
+                    <span className="pill">Variants: {variantCount}</span>
+                    {!showForm && (
+                        <button onClick={() => setShowForm(true)} className="btn w-fit">
+                            <Plus size={18} /> New Multivariate Experiment
+                        </button>
+                    )}
+                </div>
+            </div>
 
             {showForm && (
                 <div className="card border-[var(--accent)]">
-                    <h3>{editingId ? 'Edit Experiment' : 'New Experiment'}</h3>
+                    <div className="mb-4">
+                        <div className="section-kicker">Setup</div>
+                        <h3 className="section-title text-lg">{editingId ? 'Edit Experiment' : 'New Experiment'}</h3>
+                    </div>
                     <form onSubmit={handleSubmit} className="flex flex-col gap-4 mt-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <label className="flex flex-col gap-1">
@@ -287,9 +305,10 @@ export default function Experiments() {
                         <div key={exp.id} className="card relative group">
                             <div className="flex justify-between items-start mb-4">
                                 <div>
-                                    <div className="flex items-center gap-3 mb-1">
+                                    <div className="flex items-center gap-3 mb-2 flex-wrap">
                                         <h3 className="text-lg">{exp.name}</h3>
-                                        <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-secondary text-muted-foreground uppercase">{exp.funnelStageTargeted} Stage</span>
+                                        <span className="pill">{exp.funnelStageTargeted} Stage</span>
+                                        <span className="pill pill-accent">{exp.primaryMetric}</span>
                                     </div>
                                     <div className="flex items-center gap-2 mb-2">
                                         <StatusBadge status={exp.status} />

@@ -22,6 +22,11 @@ export default function Leads() {
     const { leads, settings } = state;
     const [search, setSearch] = useState('');
     const [showAddForm, setShowAddForm] = useState(false);
+    const leadSummary = useMemo(() => ({
+        total: leads.length,
+        booked: leads.filter(l => l.stage === 'BOOKED').length,
+        oldLane: leads.filter(l => l.isOldLeadsLane).length
+    }), [leads]);
 
     // Available accounts
     const accountList = useMemo(() => settings.accounts || [], [settings.accounts]);
@@ -87,18 +92,24 @@ export default function Leads() {
         <div className="flex flex-col gap-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-white">Prospect CRM</h1>
-                    <p className="text-muted-foreground text-sm">Track your LinkedIn leads through the DM Sorcery funnel.</p>
+                    <div className="section-kicker">Prospects</div>
+                    <h1 className="section-title">Prospect CRM</h1>
+                    <p className="section-subtitle">Track LinkedIn prospects through the Elite Health funnel.</p>
                 </div>
-                <button
-                    onClick={() => setShowAddForm(true)}
-                    className="btn flex items-center gap-2"
-                >
-                    <UserPlus size={18} /> Add Prospect
-                </button>
+                <div className="flex flex-wrap gap-2">
+                    <span className="pill">Total: {leadSummary.total}</span>
+                    <span className="pill pill-accent">Booked: {leadSummary.booked}</span>
+                    <span className="pill">Old Lane: {leadSummary.oldLane}</span>
+                    <button
+                        onClick={() => setShowAddForm(true)}
+                        className="btn flex items-center gap-2"
+                    >
+                        <UserPlus size={18} /> Add Prospect
+                    </button>
+                </div>
             </div>
 
-            <div className="flex items-center gap-3 bg-secondary/20 p-3 rounded-xl border border-border">
+            <div className="card-base p-3 flex items-center gap-3">
                 <Search size={18} className="text-muted-foreground" />
                 <input
                     type="text"
@@ -160,7 +171,10 @@ export default function Leads() {
 
             {showAddForm && (
                 <div className="card border-primary/50">
-                    <h3 className="mb-4">New Prospect</h3>
+                    <div className="mb-4">
+                        <div className="section-kicker">Create</div>
+                        <h3 className="section-title text-lg">New Prospect</h3>
+                    </div>
                     <form onSubmit={handleAddLead} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <label className="flex flex-col gap-1">
                             <span className="text-xs font-bold text-muted-foreground uppercase">Name</span>
@@ -204,7 +218,7 @@ export default function Leads() {
                     const stageLeads = filteredLeads.filter(l => l.stage === stage.value);
                     return (
                         <div key={stage.value} className="flex-none w-[280px] flex flex-col gap-3">
-                            <div className={clsx("p-2 rounded-lg font-bold text-xs uppercase tracking-widest flex justify-between items-center sticky top-0 backdrop-blur-md z-10", stage.color)}>
+                            <div className={clsx("p-3 rounded-xl font-bold text-xs uppercase tracking-widest flex justify-between items-center sticky top-0 backdrop-blur-md z-10 border border-border/40", stage.color)}>
                                 {stage.label}
                                 <span className="bg-black/20 px-2 py-0.5 rounded-full">{stageLeads.length}</span>
                             </div>

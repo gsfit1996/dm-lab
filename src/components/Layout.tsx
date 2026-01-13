@@ -41,6 +41,9 @@ export default function Layout() {
 
     const navItems = [...primaryNav, ...secondaryNav];
     const pageTitle = navItems.find(i => i.path === location.pathname)?.label || 'DM Lab';
+    const pageSubtitle = pageTitle === 'Dashboard'
+        ? 'Overview of your outreach performance'
+        : `Manage your ${pageTitle.toLowerCase()}`;
 
     const SidebarContent = () => (
         <>
@@ -50,11 +53,13 @@ export default function Layout() {
                         EH
                     </div>
                 ) : (
-                    <div className="flex items-center gap-3">
-                        <img src="/logo.png" alt="Elite Health" className="h-7 w-auto" />
+                    <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-secondary/40 px-3 py-2">
+                        <div className="h-10 w-10 rounded-2xl bg-black/60 border border-border/60 flex items-center justify-center overflow-hidden">
+                            <img src="/logo.png" alt="Elite Health" className="h-8 w-auto" />
+                        </div>
                         <div className="leading-tight">
-                            <div className="text-xs uppercase tracking-[0.3em] text-muted-foreground">DM Lab</div>
-                            <div className="text-sm font-semibold text-foreground">Elite Health</div>
+                            <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">Elite Health</div>
+                            <div className="text-sm font-semibold text-foreground">DM Lab</div>
                         </div>
                     </div>
                 )}
@@ -169,11 +174,14 @@ export default function Layout() {
                         >
                             <Menu size={24} />
                         </button>
-                        <img src="/logo.png" alt="Elite Health" className="h-7 w-auto md:hidden" />
+                        <div className="md:hidden h-8 w-8 rounded-xl bg-black/70 border border-border/60 flex items-center justify-center overflow-hidden">
+                            <img src="/logo.png" alt="Elite Health" className="h-6 w-auto" />
+                        </div>
                         <div>
+                            <div className="hidden md:block section-kicker">Elite Health DM Lab</div>
                             <h1 className="text-2xl md:text-3xl font-bold text-foreground truncate">{pageTitle}</h1>
                             <p className="hidden md:block text-secondary-foreground text-sm mt-1">
-                                {pageTitle === 'Dashboard' ? 'Overview of your outreach performance' : `Manage your ${pageTitle.toLowerCase()}`}
+                                {pageSubtitle}
                             </p>
                         </div>
                     </div>
@@ -201,7 +209,7 @@ export default function Layout() {
                 </main>
             </div>
 
-            <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-border/70 bg-background/90 backdrop-blur-xl">
+            <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-border/70 bg-background/90 backdrop-blur-xl mobile-nav">
                 <div className="grid grid-cols-5 gap-1 px-3 py-2">
                     {primaryNav.map((item) => (
                         <NavLink

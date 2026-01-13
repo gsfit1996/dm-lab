@@ -41,11 +41,20 @@ export default function Settings() {
 
     return (
         <div className="flex flex-col gap-6 max-w-2xl pb-20">
+            <div>
+                <div className="section-kicker">System setup</div>
+                <h1 className="section-title">Settings</h1>
+                <p className="section-subtitle">Manage accounts, KPI targets, and data sync preferences.</p>
+            </div>
             {/* Account Settings */}
             <div className="card">
-                <h3 className="flex items-center gap-2 mb-4">
-                    <Users size={20} /> Accounts
-                </h3>
+                <div className="flex items-center gap-2 mb-4">
+                    <Users size={20} className="text-primary" />
+                    <div>
+                        <div className="section-kicker">Accounts</div>
+                        <h3 className="section-title text-lg">LinkedIn Accounts</h3>
+                    </div>
+                </div>
                 <p className="text-sm text-muted-foreground mb-4">
                     Manage the LinkedIn accounts you are tracking. Affects logging and dashboard filters.
                 </p>
@@ -119,9 +128,13 @@ export default function Settings() {
             </div>
 
             <div className="card">
-                <h3 className="flex items-center gap-2 mb-2">
-                    <Target size={20} /> Success Thresholds %
-                </h3>
+                <div className="flex items-center gap-2 mb-2">
+                    <Target size={20} className="text-primary" />
+                    <div>
+                        <div className="section-kicker">Targets</div>
+                        <h3 className="section-title text-lg">Success Thresholds %</h3>
+                    </div>
+                </div>
                 <p className="text-sm text-muted-foreground mb-6">
                     Customize the KPI targets (0-100%). These drive the bottleneck diagnostics and dashboard colors.
                 </p>
@@ -151,9 +164,13 @@ export default function Settings() {
             </div>
 
             <div className="card">
-                <h3 className="flex items-center gap-2 mb-4">
-                    <Target size={20} /> KPI Exclusions
-                </h3>
+                <div className="flex items-center gap-2 mb-4">
+                    <Target size={20} className="text-primary" />
+                    <div>
+                        <div className="section-kicker">Exclusions</div>
+                        <h3 className="section-title text-lg">KPI Exclusions</h3>
+                    </div>
+                </div>
                 <label className="flex items-center gap-3 text-sm text-muted-foreground">
                     <input
                         type="checkbox"
@@ -166,9 +183,13 @@ export default function Settings() {
             </div>
 
             <div className="card">
-                <h3 className="flex items-center gap-2 mb-4">
-                    <Database size={20} /> Storage & Sync
-                </h3>
+                <div className="flex items-center gap-2 mb-4">
+                    <Database size={20} className="text-primary" />
+                    <div>
+                        <div className="section-kicker">Storage</div>
+                        <h3 className="section-title text-lg">Storage & Sync</h3>
+                    </div>
+                </div>
 
                 <div className={clsx(
                     "p-4 rounded-lg border mb-6",

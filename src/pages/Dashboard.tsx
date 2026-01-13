@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useDMLab } from '../context/DMLabContext';
 import { computeAggregates, computeKpis } from '../utils/kpiCalculator';
 import {
@@ -7,7 +8,7 @@ import {
 } from 'recharts';
 import { format, startOfWeek, parseISO, subDays } from 'date-fns';
 import { motion } from 'framer-motion';
-import { Download, Target, Info } from 'lucide-react';
+import { Download, Target, Info, ArrowUpRight } from 'lucide-react';
 import clsx from 'clsx';
 import ForecastingWidget from '../components/ForecastingWidget';
 
@@ -39,6 +40,7 @@ export default function Dashboard() {
         const unique = Array.from(new Set(dailyLogs.map(l => l.campaignTag).filter(Boolean)));
         return ['all', ...unique];
     }, [dailyLogs]);
+    const activeCampaignCount = Math.max(campaigns.length - 1, 0);
 
     // Available accounts
     const accounts = useMemo(() => settings.accounts || [], [settings.accounts]);
@@ -77,6 +79,16 @@ export default function Dashboard() {
     // 1. Aggregates & KPIs
     const aggregates = useMemo(() => computeAggregates(filteredLogs.main), [filteredLogs.main]);
     const kpis = useMemo(() => computeKpis(aggregates, kpiTargets), [aggregates, kpiTargets]);
+    const runningExperiments = useMemo(
+        () => experiments.filter(exp => exp.status === 'running').length,
+        [experiments]
+    );
+    const summaryStats = useMemo(() => ([
+        { label: 'Active campaigns', value: activeCampaignCount, hint: 'campaigns in scope' },
+        { label: 'Connection requests', value: aggregates.connectionRequestsSent, hint: 'sent in range' },
+        { label: 'Permission messages', value: aggregates.permissionMessagesSent, hint: 'sent in range' },
+        { label: 'Booked calls', value: aggregates.bookedCalls, hint: `${runningExperiments} experiments running` }
+    ]), [activeCampaignCount, aggregates.connectionRequestsSent, aggregates.permissionMessagesSent, aggregates.bookedCalls, runningExperiments]);
 
     // 2. Weekly stats for goals (Active logs only)
     const thisWeekStats = useMemo(() => {
@@ -256,55 +268,116 @@ export default function Dashboard() {
 
     return (
         <div className="flex flex-col gap-8 pb-10 max-w-[1600px] mx-auto">
-            {/* Filters */}
-            <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
-                <div className="flex flex-wrap gap-3">
-                    <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as any)} className="filter-select">
-                        <option value="all">All Time</option>
-                        <option value="7d">Last 7 Days</option>
-                        <option value="30d">Last 30 Days</option>
-                        <option value="custom">Custom</option>
-                    </select>
-
-                    {dateFilter === 'custom' && (
-                        <>
-                            <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className="filter-input" />
-                            <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className="filter-input" />
-                        </>
-                    )}
-
-                    <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} className="filter-select">
-                        {accountOptions.map((id) => {
-                            if (id === 'all') return <option key="all" value="all">All Accounts</option>;
-                            const name = accounts.find(a => a.id === id)?.name || id;
-                            return <option key={id} value={id}>{name}</option>;
-                        })}
-                    </select>
-
-                    <select value={selectedCampaign} onChange={(e) => setSelectedCampaign(e.target.value)} className="filter-select">
-                        {campaigns.map(c => <option key={c} value={c}>{c === 'all' ? 'All Campaigns' : c}</option>)}
-                    </select>
-                </div>
-
-                <div className="flex gap-4 items-center w-full xl:w-auto">
-                    {/* Bottleneck Badge */}
-                    <div className="flex-1 xl:flex-none flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border)] text-sm shadow-sm">
-                        <span className="text-muted-foreground font-medium whitespace-nowrap">Bottleneck:</span>
-                        <span className="font-bold text-foreground text-ellipsis overflow-hidden whitespace-nowrap">{kpis.bottleneck}</span>
+            <section className="card-base p-6 md:p-8 relative overflow-hidden">
+                <div className="absolute -top-28 right-0 h-72 w-72 rounded-full bg-primary/20 blur-3xl" />
+                <div className="absolute -bottom-32 left-0 h-72 w-72 rounded-full bg-accent/20 blur-3xl" />
+                <div className="relative z-10 flex flex-col xl:flex-row gap-6 justify-between">
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-2xl bg-black/70 border border-border/60 flex items-center justify-center overflow-hidden">
+                                <img src="/logo.png" alt="Elite Health" className="h-7 w-auto" />
+                            </div>
+                            <div>
+                                <div className="section-kicker">Elite Health</div>
+                                <div className="text-sm font-semibold text-foreground">DM Lab KPI Snapshot</div>
+                            </div>
+                        </div>
+                        <h2 className="section-title">Command your LinkedIn DM pipeline</h2>
+                        <p className="section-subtitle">
+                            Track CR, PRR, ABR, and Booked KPI with Elite Health benchmarks and experiment validity.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="pill pill-accent">Bottleneck: {kpis.bottleneck}</span>
+                            <span className="pill">
+                                {settings.excludeOldLeadsFromKpi ? 'Old leads excluded from KPIs' : 'Old leads included in KPIs'}
+                            </span>
+                        </div>
                     </div>
-
-                    <button onClick={exportCSV} className="btn-secondary whitespace-nowrap">
-                        <Download size={16} /> Export
-                    </button>
+                    <div className="flex flex-wrap gap-2 items-start">
+                        <Link to="/log" className="btn">
+                            Log Activity <ArrowUpRight size={16} />
+                        </Link>
+                        <Link to="/experiments" className="btn-outline">
+                            New Experiment <ArrowUpRight size={16} />
+                        </Link>
+                        <button onClick={exportCSV} className="btn-secondary whitespace-nowrap">
+                            <Download size={16} /> Export CSV
+                        </button>
+                    </div>
                 </div>
-            </div>
+                <div className="relative z-10 mt-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                    {summaryStats.map((stat) => (
+                        <SummaryStat key={stat.label} label={stat.label} value={stat.value} hint={stat.hint} />
+                    ))}
+                </div>
+            </section>
+
+            <section className="card-base p-5">
+                <div className="flex flex-col xl:flex-row gap-6">
+                    <div className="space-y-2">
+                        <div className="section-kicker">Filters</div>
+                        <h3 className="section-title text-xl">Scope and segmentation</h3>
+                        <p className="section-subtitle">Refine metrics by date range, account, and campaign tags.</p>
+                    </div>
+                    <div className="flex flex-col gap-3 flex-1">
+                        <div className="flex flex-wrap gap-2 items-center">
+                            <div className="inline-flex flex-wrap gap-2 rounded-full bg-secondary/40 border border-border/60 p-1">
+                                {[
+                                    { key: 'all', label: 'All Time' },
+                                    { key: '7d', label: '7D' },
+                                    { key: '30d', label: '30D' },
+                                    { key: 'custom', label: 'Custom' }
+                                ].map((option) => (
+                                    <button
+                                        key={option.key}
+                                        type="button"
+                                        onClick={() => setDateFilter(option.key as any)}
+                                        className={clsx(
+                                            "px-3 py-1.5 rounded-full text-xs font-semibold transition",
+                                            dateFilter === option.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        {option.label}
+                                    </button>
+                                ))}
+                            </div>
+                            {dateFilter === 'custom' && (
+                                <div className="flex flex-wrap gap-2">
+                                    <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className="filter-input" />
+                                    <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className="filter-input" />
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-3">
+                            <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} className="filter-select">
+                                {accountOptions.map((id) => {
+                                    if (id === 'all') return <option key="all" value="all">All Accounts</option>;
+                                    const name = accounts.find(a => a.id === id)?.name || id;
+                                    return <option key={id} value={id}>{name}</option>;
+                                })}
+                            </select>
+
+                            <select value={selectedCampaign} onChange={(e) => setSelectedCampaign(e.target.value)} className="filter-select">
+                                {campaigns.map(c => <option key={c} value={c}>{c === 'all' ? 'All Campaigns' : c}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             {/* Weekly Goals Widget */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="card-base col-span-1 lg:col-span-2">
-                    <div className="flex items-center gap-2 mb-6">
-                        <Target className="text-primary" size={20} />
-                        <h3 className="font-semibold text-white">Weekly Goals</h3>
+                <div className="card-base col-span-1 lg:col-span-2 p-6">
+                    <div className="flex items-center justify-between mb-6">
+                        <div>
+                            <div className="section-kicker flex items-center gap-2">
+                                <Target className="text-primary" size={14} />
+                                Weekly focus
+                            </div>
+                            <h3 className="section-title text-xl">Weekly Goals</h3>
+                            <p className="section-subtitle">Progress by account for Elite Health activity targets.</p>
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-6">
@@ -322,18 +395,21 @@ export default function Dashboard() {
                                             current={stats.connectionRequests}
                                             target={acc.weeklyGoals?.weeklyConnectionRequests || 0}
                                             onUpdate={(v) => actions.updateAccount(acc.id, { weeklyGoals: { ...acc.weeklyGoals, weeklyConnectionRequests: v } })}
+                                            accentColor={acc.color}
                                         />
                                         <GoalProgressBar
                                             label="Permission Sent"
                                             current={stats.permissionSent}
                                             target={acc.weeklyGoals?.weeklyPermissionSent || 0}
                                             onUpdate={(v) => actions.updateAccount(acc.id, { weeklyGoals: { ...acc.weeklyGoals, weeklyPermissionSent: v } })}
+                                            accentColor={acc.color}
                                         />
                                         <GoalProgressBar
                                             label="Booked Calls"
                                             current={stats.booked}
                                             target={acc.weeklyGoals?.weeklyBooked || 0}
                                             onUpdate={(v) => actions.updateAccount(acc.id, { weeklyGoals: { ...acc.weeklyGoals, weeklyBooked: v } })}
+                                            accentColor={acc.color}
                                         />
                                     </div>
                                 </div>
@@ -343,11 +419,14 @@ export default function Dashboard() {
                 </div>
 
                 {/* Old Lane Mini Panel */}
-                <div className="card-base bg-secondary/5 border-dashed border-amber-500/20">
-                    <h3 className="font-semibold text-amber-500 mb-4 flex items-center gap-2">
-                        Old Leads Lane
-                        <span className="text-[10px] bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded border border-amber-500/20">Excluded from KPI</span>
-                    </h3>
+                <div className="card-base bg-secondary/10 border-dashed border-amber-500/20 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <div className="section-kicker text-amber-400">Reactivation</div>
+                            <h3 className="section-title text-xl">Old Leads Lane</h3>
+                        </div>
+                        <span className="pill pill-strong">Excluded from KPI</span>
+                    </div>
                     <div className="flex flex-col gap-4">
                         <div className="flex justify-between items-end">
                             <span className="text-sm text-muted-foreground">Permission Sent</span>
@@ -373,7 +452,13 @@ export default function Dashboard() {
 
             {/* KPI Tiles */}
             <div>
-                <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Primary Efficiency Metrics</h4>
+                <div className="flex items-end justify-between mb-4">
+                    <div>
+                        <div className="section-kicker">Primary KPIs</div>
+                        <h3 className="section-title text-xl">Primary Efficiency Metrics</h3>
+                    </div>
+                    <span className="section-subtitle hidden md:inline">Benchmarked to Elite Health targets.</span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <RateCard title="Connection Rate (CR)" value={kpis.cr} target={kpiTargets.cr} status={kpis.crStatus} subtitle={`${aggregates.connectionsAccepted} / ${aggregates.connectionRequestsSent}`} tooltip={KPI_DEFINITIONS.CR} onTargetChange={(v) => actions.updateKpiTargets({ cr: v })} />
                     <RateCard title="Positive Reply Rate (PRR)" value={kpis.prr} target={kpiTargets.prr} status={kpis.prrStatus} subtitle={`${aggregates.permissionPositives} / ${aggregates.permissionMessagesSent}`} tooltip={KPI_DEFINITIONS.PRR} onTargetChange={(v) => actions.updateKpiTargets({ prr: v })} />
@@ -383,7 +468,13 @@ export default function Dashboard() {
             </div>
 
             <div>
-                <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Secondary Diagnostics</h4>
+                <div className="flex items-end justify-between mb-4">
+                    <div>
+                        <div className="section-kicker">Diagnostics</div>
+                        <h3 className="section-title text-xl">Secondary Diagnostics</h3>
+                    </div>
+                    <span className="section-subtitle hidden md:inline">Conversion quality between key steps.</span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-6">
                     <RateCard title="Positive -> ABR" value={kpis.posToAbr} target={kpiTargets.posToAbr} status={kpis.posToAbrStatus} subtitle={`${aggregates.offerOrBookingIntentPositives} / ${aggregates.permissionPositives}`} tooltip={KPI_DEFINITIONS.POS_TO_ABR} onTargetChange={(v) => actions.updateKpiTargets({ posToAbr: v })} />
                     <RateCard title="ABR -> Booked" value={kpis.abrToBooked} target={kpiTargets.abrToBooked} status={kpis.abrToBookedStatus} subtitle={`${aggregates.bookedCalls} / ${aggregates.offerOrBookingIntentPositives}`} tooltip={KPI_DEFINITIONS.ABR_TO_BOOKED} onTargetChange={(v) => actions.updateKpiTargets({ abrToBooked: v })} />
@@ -391,7 +482,13 @@ export default function Dashboard() {
             </div>
 
             <div>
-                <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Optional Diagnostics</h4>
+                <div className="flex items-end justify-between mb-4">
+                    <div>
+                        <div className="section-kicker">Optional</div>
+                        <h3 className="section-title text-xl">Optional Diagnostics</h3>
+                    </div>
+                    <span className="section-subtitle hidden md:inline">Useful to review show-up and close rates.</span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     <RateCard title="Seen Rate" value={kpis.seenRate} target={kpiTargets.seenRate} status={kpis.seenRateStatus} subtitle={`${aggregates.permissionSeen} / ${aggregates.permissionMessagesSent}`} tooltip={KPI_DEFINITIONS.SEEN_RATE} onTargetChange={(v) => actions.updateKpiTargets({ seenRate: v })} />
                     <RateCard title="Show-up Rate (SRR)" value={kpis.showUpRate} target={kpiTargets.srr} status={kpis.showUpRateStatus} subtitle={`${aggregates.attendedCalls} / ${aggregates.bookedCalls}`} tooltip={KPI_DEFINITIONS.SRR} onTargetChange={(v) => actions.updateKpiTargets({ srr: v })} />
@@ -403,8 +500,11 @@ export default function Dashboard() {
 
             {/* Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[400px]">
-                <div className="card-base flex flex-col">
-                    <h3 className="font-semibold text-white mb-6">Volume Trend</h3>
+                <div className="card-base flex flex-col p-6">
+                    <div className="mb-6">
+                        <div className="section-kicker">Outreach volume</div>
+                        <h3 className="section-title text-lg">Volume Trend</h3>
+                    </div>
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={weeklyData}>
                             <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
@@ -412,13 +512,16 @@ export default function Dashboard() {
                             <YAxis stroke="#52525b" fontSize={12} tickLine={false} axisLine={false} />
                             <Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px', color: '#fff' }} />
                             <Bar dataKey="sent" name="Conn. Request" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={30} />
-                            <Bar dataKey="permissionSent" name="Perm. Sent" fill="#a855f7" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                            <Bar dataKey="permissionSent" name="Perm. Sent" fill="#0ea5e9" radius={[4, 4, 0, 0]} maxBarSize={30} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
 
-                <div className="card-base flex flex-col">
-                    <h3 className="font-semibold text-white mb-6">Conversion Funnel</h3>
+                <div className="card-base flex flex-col p-6">
+                    <div className="mb-6">
+                        <div className="section-kicker">Pipeline flow</div>
+                        <h3 className="section-title text-lg">Conversion Funnel</h3>
+                    </div>
                     <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={funnelData}>
                             <defs>
@@ -437,9 +540,12 @@ export default function Dashboard() {
                 </div>
             </div>
 
-            <div className="card-base">
+            <div className="card-base p-6">
                 <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-white">Multivariate Experiment Lab</h3>
+                    <div>
+                        <div className="section-kicker">Experiments</div>
+                        <h3 className="section-title text-lg">Multivariate Experiment Lab</h3>
+                    </div>
                     <span className="text-xs text-muted-foreground">Only valid samples show a leader</span>
                 </div>
 
@@ -489,7 +595,7 @@ export default function Dashboard() {
             </div>
 
             {import.meta.env.DEV && (
-                <div className="card-base border-dashed border-border">
+                <div className="card-base border-dashed border-border p-6">
                     <h3 className="font-semibold text-white mb-2">Dev KPI Debug</h3>
                     <pre className="text-xs text-muted-foreground whitespace-pre-wrap">
                         {JSON.stringify({ aggregates, kpis }, null, 2)}
@@ -503,32 +609,44 @@ export default function Dashboard() {
 function RateCard({ title, value, target, status, subtitle, tooltip, onTargetChange }: any) {
     const [editing, setEditing] = useState(false);
     const safeVal = typeof value === 'number' ? value : null;
-    const color = status === 'green' ? 'text-emerald-500' :
-        status === 'yellow' ? 'text-amber-500' :
-            status === 'red' ? 'text-red-500' : 'text-muted-foreground';
+    const color = status === 'green' ? 'text-emerald-400' :
+        status === 'yellow' ? 'text-amber-400' :
+            status === 'red' ? 'text-red-400' : 'text-muted-foreground';
+    const statusRing = status === 'green'
+        ? 'border-emerald-500/30 bg-emerald-500/5'
+        : status === 'yellow'
+            ? 'border-amber-500/30 bg-amber-500/5'
+            : status === 'red'
+                ? 'border-red-500/30 bg-red-500/5'
+                : 'border-border/60';
+    const statusLabel = status === 'green' ? 'On track' : status === 'yellow' ? 'Watch' : status === 'red' ? 'At risk' : 'Tracking';
+    const targetPct = typeof target === 'number' ? target : 0;
+    const progress = safeVal !== null && targetPct > 0 ? Math.min((safeVal * 100) / targetPct, 1) : 0;
 
     return (
-        <div className="card-base flex flex-col justify-between min-h-[140px]">
+        <div className={clsx("card-base p-5 flex flex-col justify-between min-h-[160px] border", statusRing)}>
             <div>
-                <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground text-sm font-medium block">{title}</span>
-                    {tooltip && <Info size={14} className="text-muted-foreground/70" title={tooltip} />}
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{title}</span>
+                        {tooltip && <Info size={14} className="text-muted-foreground/70" title={tooltip} />}
+                    </div>
+                    <span className={clsx("badge", color)}>{statusLabel}</span>
                 </div>
-                {subtitle && <span className="text-[10px] text-muted-foreground opacity-50 font-mono mt-1 block">{subtitle}</span>}
+                {subtitle && <span className="text-[10px] text-muted-foreground/70 font-mono mt-2 block">{subtitle}</span>}
             </div>
 
             <div>
-                <div className="text-3xl font-bold text-foreground">{safeVal === null ? '--' : `${(safeVal * 100).toFixed(1)}%`}</div>
+                <div className="text-3xl font-semibold text-foreground">{safeVal === null ? '--' : `${(safeVal * 100).toFixed(1)}%`}</div>
 
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
-                    <span className={clsx("text-xs font-bold uppercase tracking-wider", color)}>{status === 'neutral' ? 'Ratio' : status}</span>
-                    <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                        <span>Goal:</span>
+                <div className="mt-3">
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span>Target</span>
                         {editing ? (
                             <input
                                 autoFocus
                                 type="number"
-                                className="w-10 bg-secondary px-1 py-0.5 rounded text-foreground text-xs"
+                                className="w-12 bg-secondary px-1 py-0.5 rounded text-foreground text-xs"
                                 defaultValue={target}
                                 onBlur={(e) => { onTargetChange(parseFloat(e.target.value)); setEditing(false); }}
                             />
@@ -536,15 +654,23 @@ function RateCard({ title, value, target, status, subtitle, tooltip, onTargetCha
                             <span onClick={() => setEditing(true)} className="hover:text-primary cursor-pointer border-b border-dashed border-muted-foreground/50">{target}%</span>
                         )}
                     </div>
+                    <div className="mt-2 h-1.5 w-full rounded-full bg-secondary/60 overflow-hidden">
+                        <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${progress * 100}%` }}
+                            className={clsx("h-full rounded-full", safeVal === null ? "bg-muted-foreground/40" : "bg-primary")}
+                        />
+                    </div>
                 </div>
             </div>
         </div>
     );
 }
 
-function GoalProgressBar({ label, current, target, onUpdate }: any) {
+function GoalProgressBar({ label, current, target, onUpdate, accentColor }: any) {
     const [editing, setEditing] = useState(false);
     const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
+    const barStyle = accentColor ? { backgroundColor: accentColor } : undefined;
 
     return (
         <div>
@@ -569,9 +695,20 @@ function GoalProgressBar({ label, current, target, onUpdate }: any) {
                 <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${pct}%` }}
+                    style={barStyle}
                     className={clsx("h-full rounded-full", pct >= 100 ? "bg-emerald-500" : "bg-primary")}
                 />
             </div>
+        </div>
+    );
+}
+
+function SummaryStat({ label, value, hint }: { label: string; value: number; hint?: string }) {
+    return (
+        <div className="rounded-2xl border border-border/60 bg-secondary/20 px-4 py-3">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{label}</div>
+            <div className="text-2xl font-semibold text-foreground mt-1">{value}</div>
+            {hint && <div className="text-[11px] text-muted-foreground mt-1">{hint}</div>}
         </div>
     );
 }

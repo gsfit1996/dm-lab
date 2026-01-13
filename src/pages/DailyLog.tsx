@@ -9,6 +9,14 @@ export default function DailyLogPage() {
     const { state, actions } = useDMLab();
     const { dailyLogs, experiments, kpiTargets, settings } = state;
     const [editingId, setEditingId] = useState<string | null>(null);
+    const lastEntryDate = useMemo(() => {
+        if (!dailyLogs.length) return '--';
+        return [...dailyLogs].sort((a, b) => b.date.localeCompare(a.date))[0].date;
+    }, [dailyLogs]);
+    const runningExperimentCount = useMemo(
+        () => experiments.filter(exp => exp.status === 'running').length,
+        [experiments]
+    );
 
     // Get accounts safely
     const accountList = useMemo(() => settings.accounts || [], [settings.accounts]);
@@ -79,13 +87,28 @@ export default function DailyLogPage() {
 
     return (
         <div className="flex flex-col gap-8">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                    <div className="section-kicker">Daily inputs</div>
+                    <h1 className="section-title">Daily Log</h1>
+                    <p className="section-subtitle">Capture outreach volume and KPI ratios with full experiment context.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    <span className="pill">Total logs: {dailyLogs.length}</span>
+                    <span className="pill">Last entry: {lastEntryDate}</span>
+                    <span className="pill pill-accent">Active experiments: {runningExperimentCount}</span>
+                </div>
+            </div>
 
             {/* Form Card */}
             <div className="card">
-                <h2 className="flex items-center gap-2">
-                    {editingId ? <Edit2 size={24} /> : <Plus size={24} />}
-                    {editingId ? 'Edit Daily Log' : 'New Daily Log'}
-                </h2>
+                <div className="mb-4">
+                    <div className="section-kicker">Log entry</div>
+                    <h2 className="section-title text-lg flex items-center gap-2">
+                        {editingId ? <Edit2 size={20} /> : <Plus size={20} />}
+                        {editingId ? 'Edit Daily Log' : 'New Daily Log'}
+                    </h2>
+                </div>
 
                 <form onSubmit={handleSubmit} className="flex flex-col gap-6">
                     {/* Top Row */}
@@ -157,29 +180,34 @@ export default function DailyLogPage() {
                     </div>
 
                     {/* Numeric Inputs Grid */}
-                    <div className="p-4 bg-[var(--bg-app)] rounded-xl border border-border">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-12 gap-4 text-center">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <div className="rounded-2xl border border-border/60 bg-secondary/20 p-4">
+                            <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-3">Connection</div>
+                            <div className="grid grid-cols-2 gap-3 text-center">
+                                <NumberInput label="Conn. Sent" value={form.connectionRequestsSent} onChange={v => setForm({ ...form, connectionRequestsSent: v })} />
+                                <NumberInput label="Conn. Acc." value={form.connectionsAccepted} onChange={v => setForm({ ...form, connectionsAccepted: v })} />
+                            </div>
+                        </div>
 
-                            {/* Connection Stage */}
-                            <NumberInput label="Conn. Sent" value={form.connectionRequestsSent} onChange={v => setForm({ ...form, connectionRequestsSent: v })} />
-                            <NumberInput label="Conn. Acc." value={form.connectionsAccepted} onChange={v => setForm({ ...form, connectionsAccepted: v })} />
+                        <div className="rounded-2xl border border-border/60 bg-secondary/20 p-4">
+                            <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-3">Permission</div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
+                                <NumberInput label="Perm. Sent" value={form.permissionMessagesSent} onChange={v => setForm({ ...form, permissionMessagesSent: v })} />
+                                <NumberInput label="Perm. Seen" value={form.permissionSeen} onChange={v => setForm({ ...form, permissionSeen: v })} subLabel="(Diagnostic)" />
+                                <NumberInput label="Perm. Pos (+)" value={form.permissionPositives} onChange={v => setForm({ ...form, permissionPositives: v })} highlight />
+                            </div>
+                        </div>
 
-                            <div className="hidden lg:block w-px bg-border mx-auto h-full"></div>
-
-                            {/* Permission Stage */}
-                            <NumberInput label="Perm. Sent" value={form.permissionMessagesSent} onChange={v => setForm({ ...form, permissionMessagesSent: v })} />
-                            <NumberInput label="Perm. Seen" value={form.permissionSeen} onChange={v => setForm({ ...form, permissionSeen: v })} subLabel="(Diagnostic)" />
-                            <NumberInput label="Perm. Pos (+)" value={form.permissionPositives} onChange={v => setForm({ ...form, permissionPositives: v })} highlight />
-
-                            <div className="hidden lg:block w-px bg-border mx-auto h-full"></div>
-
-                            {/* Offer / Booking Stage */}
-                            <NumberInput label="Offer Sent" value={form.offerMessagesSent} onChange={v => setForm({ ...form, offerMessagesSent: v })} subLabel="(Optional)" />
-                            <NumberInput label="Offer Seen" value={form.offerSeen} onChange={v => setForm({ ...form, offerSeen: v })} subLabel="(Optional)" />
-                            <NumberInput label="Offer/Intent (+)" value={form.offerOrBookingIntentPositives} onChange={v => setForm({ ...form, offerOrBookingIntentPositives: v })} highlight />
-                            <NumberInput label="Booked Call" value={form.bookedCalls} onChange={v => setForm({ ...form, bookedCalls: v })} highlight color="emerald" />
-                            <NumberInput label="Attended" value={form.attendedCalls} onChange={v => setForm({ ...form, attendedCalls: v })} subLabel="(Optional)" />
-                            <NumberInput label="Closed" value={form.closedDeals} onChange={v => setForm({ ...form, closedDeals: v })} subLabel="(Optional)" />
+                        <div className="rounded-2xl border border-border/60 bg-secondary/20 p-4">
+                            <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-3">Offer + Booking</div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
+                                <NumberInput label="Offer Sent" value={form.offerMessagesSent} onChange={v => setForm({ ...form, offerMessagesSent: v })} subLabel="(Optional)" />
+                                <NumberInput label="Offer Seen" value={form.offerSeen} onChange={v => setForm({ ...form, offerSeen: v })} subLabel="(Optional)" />
+                                <NumberInput label="Offer/Intent (+)" value={form.offerOrBookingIntentPositives} onChange={v => setForm({ ...form, offerOrBookingIntentPositives: v })} highlight />
+                                <NumberInput label="Booked Call" value={form.bookedCalls} onChange={v => setForm({ ...form, bookedCalls: v })} highlight color="emerald" />
+                                <NumberInput label="Attended" value={form.attendedCalls} onChange={v => setForm({ ...form, attendedCalls: v })} subLabel="(Optional)" />
+                                <NumberInput label="Closed" value={form.closedDeals} onChange={v => setForm({ ...form, closedDeals: v })} subLabel="(Optional)" />
+                            </div>
                         </div>
                     </div>
 
@@ -206,26 +234,28 @@ export default function DailyLogPage() {
                     </label>
 
                     {/* DM Sorcery Check */}
-                    <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-4 sm:gap-6 text-sm text-[var(--text-secondary)] bg-[var(--bg-app)] p-3 rounded border border-[var(--border)] border-dashed">
-                        <div className="flex items-center gap-2 font-bold text-foreground">
-                            <Calculator size={16} />
-                            DM Sorcery Check:
+                    <div className="card-base p-4 border-dashed border-border/80">
+                        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-4 sm:gap-6 text-sm text-[var(--text-secondary)]">
+                            <div className="flex items-center gap-2 font-bold text-foreground">
+                                <Calculator size={16} />
+                                <span className="pill pill-accent">DM Sorcery Check</span>
+                            </div>
+
+                            <KpiReadout label="CR" value={currentKpis.cr} status={currentKpis.crStatus} />
+                            <KpiReadout label="PRR" value={currentKpis.prr} status={currentKpis.prrStatus} />
+                            <KpiReadout label="ABR" value={currentKpis.abr} status={currentKpis.abrStatus} />
+                            <KpiReadout label="Booked KPI" value={currentKpis.bookedKpi} status={currentKpis.bookedStatus} />
+                            <KpiReadout label="Pos->ABR" value={currentKpis.posToAbr} status={currentKpis.posToAbrStatus} />
+                            <KpiReadout label="ABR->Booked" value={currentKpis.abrToBooked} status={currentKpis.abrToBookedStatus} />
+
+                            <div className="w-px h-4 bg-border hidden sm:block"></div>
+
+                            {form.isOldLeadsLane && (
+                                <span className="text-xs font-bold text-amber-500 uppercase tracking-widest ml-auto">
+                                    Old Lane Excluded
+                                </span>
+                            )}
                         </div>
-
-                        <KpiReadout label="CR" value={currentKpis.cr} status={currentKpis.crStatus} />
-                        <KpiReadout label="PRR" value={currentKpis.prr} status={currentKpis.prrStatus} />
-                        <KpiReadout label="ABR" value={currentKpis.abr} status={currentKpis.abrStatus} />
-                        <KpiReadout label="Booked KPI" value={currentKpis.bookedKpi} status={currentKpis.bookedStatus} />
-                        <KpiReadout label="Pos->ABR" value={currentKpis.posToAbr} status={currentKpis.posToAbrStatus} />
-                        <KpiReadout label="ABR->Booked" value={currentKpis.abrToBooked} status={currentKpis.abrToBookedStatus} />
-
-                        <div className="w-px h-4 bg-border hidden sm:block"></div>
-
-                        {form.isOldLeadsLane && (
-                            <span className="text-xs font-bold text-amber-500 uppercase tracking-widest ml-auto">
-                                Old Lane Excluded
-                            </span>
-                        )}
                     </div>
 
                     <div className="flex justify-end gap-3">
@@ -247,7 +277,13 @@ export default function DailyLogPage() {
 
             {/* Logs Table */}
             <div className="card">
-                <h3>Recent Logs</h3>
+                <div className="flex items-center justify-between mb-4">
+                    <div>
+                        <div className="section-kicker">History</div>
+                        <h3 className="section-title text-lg">Recent Logs</h3>
+                    </div>
+                    <span className="section-subtitle hidden md:inline">Review and edit previous entries.</span>
+                </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-sm">
                         <thead>
@@ -334,9 +370,10 @@ function KpiReadout({ label, value, status }: any) {
                     'text-muted-foreground';
 
     return (
-        <span className={clsx("font-mono flex items-center gap-1.5", colorClass)}>
-            <span className="text-[10px] font-bold opacity-70 uppercase tracking-wilder text-foreground">{label}:</span>
-            {value === null ? '--' : `${(value * 100).toFixed(1)}%`}
+        <span className={clsx("font-mono flex items-center gap-2 text-xs", colorClass)}>
+            <span className="h-2 w-2 rounded-full bg-current/70"></span>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
+            <span className="font-semibold">{value === null ? '--' : `${(value * 100).toFixed(1)}%`}</span>
         </span>
     );
 }
