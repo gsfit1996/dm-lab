@@ -26,27 +26,37 @@ export default function Layout() {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-    const navItems = [
+    const primaryNav = [
         { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
         { icon: FileText, label: 'Daily Log', path: '/log' },
+        { icon: Users, label: 'Leads', path: '/leads' },
         { icon: TestTube, label: 'Experiments', path: '/experiments' },
-        { icon: Users, label: 'Prospects', path: '/leads' },
-        { icon: Gift, label: 'Offers', path: '/offers' },
-        { icon: ArchiveIcon, label: 'Archive', path: '/archive' },
         { icon: Settings, label: 'Settings', path: '/settings' },
     ];
 
+    const secondaryNav = [
+        { icon: Gift, label: 'Offers', path: '/offers' },
+        { icon: ArchiveIcon, label: 'Archive', path: '/archive' },
+    ];
+
+    const navItems = [...primaryNav, ...secondaryNav];
     const pageTitle = navItems.find(i => i.path === location.pathname)?.label || 'DM Lab';
 
     const SidebarContent = () => (
         <>
-            <div className={clsx("flex items-center gap-3 mb-10 px-2 transition-all duration-300", isCollapsed ? "justify-center" : "justify-center")}>
+            <div className={clsx("flex items-center gap-3 mb-8 px-2 transition-all duration-300", isCollapsed ? "justify-center" : "justify-start")}>
                 {isCollapsed ? (
-                    <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-xl">
-                        E
+                    <div className="w-10 h-10 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center text-primary font-bold text-sm">
+                        EH
                     </div>
                 ) : (
-                    <img src="/logo.png" alt="Logo" className="w-32 object-contain" />
+                    <div className="flex items-center gap-3">
+                        <img src="/logo.png" alt="Elite Health" className="h-7 w-auto" />
+                        <div className="leading-tight">
+                            <div className="text-xs uppercase tracking-[0.3em] text-muted-foreground">DM Lab</div>
+                            <div className="text-sm font-semibold text-foreground">Elite Health</div>
+                        </div>
+                    </div>
                 )}
             </div>
 
@@ -57,6 +67,7 @@ export default function Layout() {
                         <NavLink
                             key={item.path}
                             to={item.path}
+                            end={item.path === '/'}
                             onClick={() => setIsMobileMenuOpen(false)}
                             className={({ isActive }) => clsx(
                                 "relative flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group font-medium text-sm",
@@ -81,6 +92,13 @@ export default function Layout() {
                 })}
             </nav>
 
+            {!isCollapsed && (
+                <div className="mt-6 rounded-2xl border border-border/70 bg-secondary/40 p-4 text-xs text-muted-foreground">
+                    <div className="font-semibold text-foreground mb-1">Elite Health KPI System</div>
+                    <div>Track CR, PRR, ABR, and Booked KPI with experiment validity rules built-in.</div>
+                </div>
+            )}
+
             <button
                 onClick={actions.toggleTheme}
                 className={clsx(
@@ -95,7 +113,7 @@ export default function Layout() {
     );
 
     return (
-        <div className="flex h-screen bg-background text-foreground overflow-hidden">
+        <div className="app-shell flex h-screen bg-background text-foreground overflow-hidden">
             {/* Desktop Sidebar */}
             <motion.aside
                 initial={false}
@@ -141,9 +159,9 @@ export default function Layout() {
 
             {/* Main Content */}
             <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-500/10 via-background to-background pointer-events-none" />
+                <div className="absolute inset-0 pointer-events-none" />
 
-                <header className="flex items-center justify-between p-4 md:p-8 pb-4 relative z-10 gap-4">
+                <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-border/60 bg-background/70 px-4 py-4 md:px-8 md:py-6 backdrop-blur-xl">
                     <div className="flex items-center gap-4">
                         <button
                             onClick={() => setIsMobileMenuOpen(true)}
@@ -151,8 +169,9 @@ export default function Layout() {
                         >
                             <Menu size={24} />
                         </button>
+                        <img src="/logo.png" alt="Elite Health" className="h-7 w-auto md:hidden" />
                         <div>
-                            <h1 className="text-2xl md:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-foreground to-secondary-foreground truncate">{pageTitle}</h1>
+                            <h1 className="text-2xl md:text-3xl font-bold text-foreground truncate">{pageTitle}</h1>
                             <p className="hidden md:block text-secondary-foreground text-sm mt-1">
                                 {pageTitle === 'Dashboard' ? 'Overview of your outreach performance' : `Manage your ${pageTitle.toLowerCase()}`}
                             </p>
@@ -160,6 +179,13 @@ export default function Layout() {
                     </div>
 
                     <div className="flex items-center gap-4">
+                        <button
+                            onClick={actions.toggleTheme}
+                            className="hidden md:inline-flex items-center justify-center rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-secondary/70"
+                            aria-label="Toggle theme"
+                        >
+                            {state.settings.theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+                        </button>
                         <button
                             onClick={() => actions.saveData()}
                             className="flex items-center gap-2 px-3 md:px-5 py-2 md:py-2.5 bg-primary text-primary-foreground rounded-xl font-medium hover:brightness-110 transition-all shadow-lg shadow-primary/25 active:scale-95 text-sm md:text-base"
@@ -170,10 +196,29 @@ export default function Layout() {
                     </div>
                 </header>
 
-                <main className="flex-1 overflow-y-auto px-4 md:px-8 pb-8 relative z-10">
+                <main className="flex-1 overflow-y-auto px-4 md:px-8 pb-24 md:pb-10 relative z-10 scrollbar-thin">
                     <Outlet />
                 </main>
             </div>
+
+            <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-border/70 bg-background/90 backdrop-blur-xl">
+                <div className="grid grid-cols-5 gap-1 px-3 py-2">
+                    {primaryNav.map((item) => (
+                        <NavLink
+                            key={item.path}
+                            to={item.path}
+                            end={item.path === '/'}
+                            className={({ isActive }) => clsx(
+                                "flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[10px] font-semibold transition",
+                                isActive ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            <item.icon size={18} />
+                            <span className="truncate">{item.label}</span>
+                        </NavLink>
+                    ))}
+                </div>
+            </nav>
         </div>
     );
 }

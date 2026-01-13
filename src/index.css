@@ -1,2 +1,154 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@300..800&family=Sora:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 @config "../tailwind.config.js";
+
+@layer base {
+  :root {
+    --background: 220 28% 8%;
+    --foreground: 210 40% 98%;
+    --card: 222 26% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 26% 12%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 226 92% 58%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 222 18% 18%;
+    --secondary-foreground: 220 12% 74%;
+    --muted: 222 16% 14%;
+    --muted-foreground: 220 10% 60%;
+    --accent: 198 90% 52%;
+    --accent-foreground: 210 40% 98%;
+    --border: 222 18% 22%;
+    --ring: 226 92% 58%;
+    --shadow: 220 40% 2%;
+    --bg-app: hsl(222 24% 10%);
+    --bg-card: hsl(222 26% 12%);
+    --text-secondary: hsl(220 10% 60%);
+    --app-bg: radial-gradient(1200px 600px at 100% -10%, rgba(61, 95, 255, 0.25), transparent 55%),
+      radial-gradient(900px 500px at 0% 0%, rgba(14, 165, 233, 0.18), transparent 55%),
+      linear-gradient(180deg, rgba(15, 18, 24, 0.65), rgba(10, 12, 16, 0.85));
+  }
+
+  :root[data-theme="light"] {
+    --background: 220 30% 98%;
+    --foreground: 222 22% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 22% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 22% 12%;
+    --primary: 226 92% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 92%;
+    --secondary-foreground: 222 14% 30%;
+    --muted: 220 16% 92%;
+    --muted-foreground: 222 14% 40%;
+    --accent: 198 90% 40%;
+    --accent-foreground: 0 0% 100%;
+    --border: 220 14% 86%;
+    --ring: 226 92% 52%;
+    --shadow: 220 14% 30%;
+    --bg-app: hsl(220 30% 96%);
+    --bg-card: hsl(0 0% 100%);
+    --text-secondary: hsl(222 14% 40%);
+    --app-bg: radial-gradient(1200px 600px at 100% -10%, rgba(61, 95, 255, 0.12), transparent 55%),
+      radial-gradient(900px 500px at 0% 0%, rgba(14, 165, 233, 0.12), transparent 55%),
+      linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(233, 236, 240, 0.9));
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    background-image: var(--app-bg);
+    background-attachment: fixed;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+  }
+}
+
+@layer components {
+  .app-shell {
+    @apply bg-transparent;
+  }
+
+  .glass {
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01));
+    backdrop-filter: blur(18px);
+  }
+
+  .card-base {
+    @apply rounded-2xl bg-card/70 border border-border/70 shadow-soft backdrop-blur-xl;
+  }
+
+  .card {
+    @apply rounded-2xl bg-card/80 border border-border/70 shadow-soft backdrop-blur-xl p-6;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm text-foreground shadow-inner shadow-black/20 transition focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/60;
+  }
+
+  .filter-select,
+  .filter-input {
+    @apply rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm text-foreground shadow-inner shadow-black/10 transition focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/60;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-glow transition hover:brightness-110 active:scale-[0.98];
+  }
+
+  .btn-primary {
+    @apply bg-primary text-primary-foreground shadow-glow;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-secondary px-4 py-2 text-sm font-semibold text-foreground shadow-soft transition hover:bg-secondary/80 active:scale-[0.98];
+  }
+
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-border/70 px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-secondary/40 active:scale-[0.98];
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-secondary-foreground transition hover:bg-secondary/40 hover:text-foreground;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full border border-border/70 bg-secondary/40 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-secondary-foreground;
+  }
+
+  .badge.archived {
+    @apply bg-secondary/60 text-secondary-foreground;
+  }
+}
+
+@layer utilities {
+  .text-shadow-soft {
+    text-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.3);
+    border-radius: 999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
